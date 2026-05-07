@@ -4,5 +4,5 @@ public class MenuInicial {
 
 
     private JButton matchCenterButton;
-    private JButton button2;
+    private JButton RecursoseEspacosButton;
 }

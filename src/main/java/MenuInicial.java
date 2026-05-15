@@ -3,7 +3,11 @@ import java.awt.*;
 
 public class MenuInicial extends JFrame {
 
-    public MenuInicial() {
+    private boolean isAdmin;
+
+    public MenuInicial(boolean isAdmin) {
+        this.isAdmin = isAdmin;
+
         setTitle("Mundial 2026 - Gestão Integrada");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(1100, 700);
@@ -25,16 +29,27 @@ public class MenuInicial extends JFrame {
         };
         contentorPrincipal.setBorder(BorderFactory.createEmptyBorder(25, 25, 25, 25));
 
-        JPanel zonaSuperior = new JPanel(new GridLayout(1, 2, 20, 0));
-        zonaSuperior.setOpaque(false);
+        if (isAdmin) {
+            JPanel zonaSuperior = new JPanel(new GridLayout(1, 2, 20, 0));
+            zonaSuperior.setOpaque(false);
 
-        zonaSuperior.add(criarModulo("FIFA WORLD CUP™ MATCH CENTER ", "Gestão de Calendário e Fases"));
-        zonaSuperior.add(criarModulo("RECURSOS E ESPAÇOS ", "Hotéis, Centros de Treino e Estádios"));
+            zonaSuperior.add(criarModulo("FIFA WORLD CUP™ MATCH CENTER ", "Gestão de Calendário e Fases"));
+            zonaSuperior.add(criarModulo("RECURSOS E ESPAÇOS ", "Hotéis, Centros de Treino e Estádios"));
 
-        JPanel zonaInferior = criarModuloAcessos("ACESSOS", "Bilheteira e Controlo de Entrada");
+            JPanel zonaInferior = criarModuloAcessos("ACESSOS", "Bilheteira e Controlo de Entrada");
 
-        contentorPrincipal.add(zonaSuperior, BorderLayout.CENTER);
-        contentorPrincipal.add(zonaInferior, BorderLayout.SOUTH);
+            contentorPrincipal.add(zonaSuperior, BorderLayout.CENTER);
+            contentorPrincipal.add(zonaInferior, BorderLayout.SOUTH);
+        } else {
+            JPanel zonaCentral = new JPanel(new GridBagLayout());
+            zonaCentral.setOpaque(false);
+
+            JPanel moduloUnico = criarModulo("MATCH CENTER", "Consultar Calendário e Classificações");
+            moduloUnico.setPreferredSize(new Dimension(500, 250));
+
+            zonaCentral.add(moduloUnico);
+            contentorPrincipal.add(zonaCentral, BorderLayout.CENTER);
+        }
 
         setContentPane(contentorPrincipal);
         setLocationRelativeTo(null);
@@ -102,6 +117,15 @@ public class MenuInicial extends JFrame {
     }
 
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new MenuInicial().setVisible(true));
+        SwingUtilities.invokeLater(() -> {
+            String[] opcoes = {"Organizador ", "Adepto "};
+            int escolha = JOptionPane.showOptionDialog(null, "Selecione o perfil de acesso:", "Login do Sistema",
+                    JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, opcoes, opcoes[0]);
+
+            if (escolha == -1) System.exit(0);
+
+            boolean isAdmin = (escolha == 0);
+            new MenuInicial(isAdmin).setVisible(true);
+        });
     }
 }

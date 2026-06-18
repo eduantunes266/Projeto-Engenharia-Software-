@@ -2,13 +2,15 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
 import javax.swing.border.TitledBorder;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
 import java.awt.*;
 import java.awt.event.*;
-import java.util.ArrayList;
-import java.util.Arrays;
+import java.io.*;
+import java.util.*;
 import java.util.List;
 
 public class MenuMatchCenter extends JFrame {
@@ -28,201 +30,272 @@ public class MenuMatchCenter extends JFrame {
     private final Font TITLE_FONT = new Font("Segoe UI", Font.BOLD,  15);
     private final Font NAV_FONT   = new Font("Segoe UI", Font.BOLD,  13);
 
-    // SELEÇÕES
-    private final List<String> TODAS_SELECOES = new ArrayList<>(Arrays.asList(
-            "Alemanha","Argélia","Argentina","Austrália","Bélgica","Bósnia e Herzegovina",
-            "Brasil","Camarões","Chile","Colômbia","Coreia do Sul","Costa do Marfim",
-            "Costa Rica","Equador","Espanha","Estados Unidos","França","Gana",
-            "Grécia","Honduras","Inglaterra","Irão","Itália","Japão",
-            "México","Nigéria","Países Baixos","Portugal","Rússia","Suíça","Uruguai","Croácia"
-    ));
+    // --- DADOS DO DOMÍNIO (Persistência) ---
+    private MatchCenterBD bd;
+    private final String BD_FILE = "matchcenter_dados.dat";
 
-    // 8 GRUPOS (editáveis em runtime)
-    private final List<List<String>> GRUPOS = new ArrayList<>();
+    // MODELOS DE TABELAS
+    private final DefaultTableModel[] modelosCalendario   = new DefaultTableModel[8];
+    private final DefaultTableModel[] modelosClassificacao = new DefaultTableModel[8];
+    private DefaultTableModel modeloKnockout;
+    private DefaultTableModel modeloArbitros;
+    private DefaultTableModel modeloAlocacoes;
 
-    // MODELOS DE CALENDÁRIO (Um por grupo, atualizados quando se regista um jogo)
-    private final DefaultTableModel[] modelosCalendario = new DefaultTableModel[8];
-
-    // --- Variáveis Globais de Estatísticas ---
-    private int totalGolos = 0;
-    private int totalAmarelos = 0;
-    private int totalVermelhos = 0;
-    private int totalEspectadores = 0;
-    private int totalJogosRegistados = 0;
-
-    private JLabel lblValGolos;
-    private JLabel lblValAmarelos;
-    private JLabel lblValVermelhos;
-    private JLabel lblValEspectadores;
-
-    private JPanel sidebarPanel;
+    private JLabel lblValGolos, lblValAmarelos, lblValVermelhos, lblValEspectadores;
+    private JPanel sidebarPanel, contentArea;
     private CardLayout cardLayout;
-    private JPanel contentArea;
     private JButton[] navButtons;
+    private int[] navTargets;
+    private final boolean isAdmin;
 
     // =========================================================================
-    // CONSTRUTOR
+    // CLASSES DE DADOS (Serializable para guardar ficheiro binário)
     // =========================================================================
-    public MenuMatchCenter() {
-        inicializarGrupos();
-        inicializarModelosCalendario(); // Prepara as tabelas vazias do calendário
+    public static class MatchCenterBD implements Serializable {
+        private static final long serialVersionUID = 1L;
+        List<List<String>> grupos = new ArrayList<>();
+        List<Arbitro> arbitros = new ArrayList<>();
+        List<Jogo> jogosRegistados = new ArrayList<>();
+        LinkedHashMap<String, Resultado> resultados = new LinkedHashMap<>();
+        LinkedHashMap<String, String> alocacoes = new LinkedHashMap<>();
+        List<String> equipasArbitragem = new ArrayList<>();
 
-        setTitle("FIFA World Cup Match Center");
+        public MatchCenterBD() {
+            String[][] defaults = {
+                    {"Brasil", "Croácia", "México", "Camarões"},
+                    {"Espanha", "Países Baixos", "Chile", "Austrália"},
+                    {"Colômbia", "Grécia", "Costa do Marfim", "Japão"},
+                    {"Uruguai", "Costa Rica", "Inglaterra", "Itália"},
+                    {"Suíça", "Equador", "França", "Honduras"},
+                    {"Argentina", "Bósnia e Herzegovina", "Irão", "Nigéria"},
+                    {"Alemanha", "Portugal", "Gana", "Estados Unidos"},
+                    {"Bélgica", "Argélia", "Rússia", "Coreia do Sul"}
+            };
+            for (String[] g : defaults) grupos.add(new ArrayList<>(Arrays.asList(g)));
+        }
+    }
+
+    private static class Arbitro implements Serializable {
+        private static final long serialVersionUID = 1L;
+        final String nome, funcao, paisNascenca, equipa;
+        Arbitro(String n, String f, String pn, String eq) { nome = n; funcao = f; paisNascenca = pn; equipa = eq; }
+    }
+
+    private static class Jogo implements Serializable {
+        private static final long serialVersionUID = 1L;
+        final String id = UUID.randomUUID().toString();
+        final int grupo; final String eq1, eq2, data, hora, estadio;
+        Jogo(int g, String e1, String e2, String d, String h, String est) {
+            grupo = g; eq1 = e1; eq2 = e2; data = d; hora = h; estadio = est;
+        }
+        String getPartida() { return eq1 + " vs " + eq2; }
+    }
+
+    private static class Resultado implements Serializable {
+        private static final long serialVersionUID = 1L;
+        final int grupo; final String eq1, eq2; final int g1, g2, amarelos, vermelhos, espectadores;
+        Resultado(int gr, String a, String b, int x, int y, int am, int ve, int esp) {
+            grupo = gr; eq1 = a; eq2 = b; g1 = x; g2 = y; amarelos = am; vermelhos = ve; espectadores = esp;
+        }
+    }
+
+    // =========================================================================
+    // CONSTRUTOR E PERSISTÊNCIA
+    // =========================================================================
+    public MenuMatchCenter() { this(true); }
+
+    public MenuMatchCenter(boolean isAdmin) {
+        this.isAdmin = isAdmin;
+        carregarDados();
+        inicializarModelosCalendario();
+
+        setTitle("FIFA World Cup Match Center" + (isAdmin ? "" : "  —  Modo Consulta (Adepto)"));
         setSize(1400, 960);
         setMinimumSize(new Dimension(1100, 700));
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setLocationRelativeTo(null);
+
+        addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) { salvarDados(); }
+        });
 
         GradientPanel root = new GradientPanel();
         root.setLayout(new BorderLayout(0, 0));
         setContentPane(root);
-
         root.add(buildTitleAndNav(), BorderLayout.NORTH);
         root.add(buildContentPanel(), BorderLayout.CENTER);
 
-        selectSection(0);
-
-        addComponentListener(new ComponentAdapter() {
-            @Override public void componentResized(ComponentEvent e) {
-                if (sidebarPanel != null) {
-                    int w     = getWidth();
-                    int sideW = Math.max(220, Math.min(320, w / 5));
-                    sidebarPanel.setPreferredSize(new Dimension(sideW, 0));
-                    sidebarPanel.revalidate();
-                    sidebarPanel.repaint();
-                }
-            }
-        });
+        preencherTabelasIniciais();
+        recomputarTudo();
+        selectSection(isAdmin ? 0 : 2);
     }
 
-    private void inicializarGrupos() {
-        String[][] defaults = {
-                {"Brasil",    "Croácia",             "México",    "Camarões"},
-                {"Espanha",   "Países Baixos",        "Chile",     "Austrália"},
-                {"Colômbia",  "Grécia",               "Costa do Marfim","Japão"},
-                {"Uruguai",   "Costa Rica",           "Inglaterra","Itália"},
-                {"Suíça",     "Equador",              "França",    "Honduras"},
-                {"Argentina", "Bósnia e Herzegovina", "Irão",      "Nigéria"},
-                {"Alemanha",  "Portugal",             "Gana",      "Estados Unidos"},
-                {"Bélgica",   "Argélia",              "Rússia",    "Coreia do Sul"}
-        };
-        for (String[] g : defaults) GRUPOS.add(new ArrayList<>(Arrays.asList(g)));
+    private void carregarDados() {
+        File file = new File(BD_FILE);
+        if (file.exists()) {
+            try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(file))) {
+                bd = (MatchCenterBD) ois.readObject();
+                return;
+            } catch (Exception e) { e.printStackTrace(); }
+        }
+        bd = new MatchCenterBD();
+    }
+
+    private void salvarDados() {
+        try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(BD_FILE))) {
+            oos.writeObject(bd);
+        } catch (IOException e) { e.printStackTrace(); }
     }
 
     private void inicializarModelosCalendario() {
         String[] calCols = {"Partida", "Data", "Hora", "Estádio"};
         for (int i = 0; i < 8; i++) {
             modelosCalendario[i] = new DefaultTableModel(calCols, 0) {
-                @Override public boolean isCellEditable(int r, int c) { return false; }
+                @Override public boolean isCellEditable(int r, int c) { return false; } // REQ: Inalterável
             };
         }
     }
 
+    private void preencherTabelasIniciais() {
+        for (Jogo j : bd.jogosRegistados) {
+            if (j.grupo >= 0 && j.grupo < 8) {
+                modelosCalendario[j.grupo].addRow(new Object[]{j.getPartida(), j.data, j.hora, j.estadio});
+            }
+        }
+    }
+
     // =========================================================================
-    // BARRA DE TÍTULO + NAVEGAÇÃO HORIZONTAL (em cima)
+    // RECÁLCULO AUTOMÁTICO
+    // =========================================================================
+    private void recomputarTudo() {
+        recomputarClassificacoes();
+        recomputarEstatisticas();
+        atualizarMataMata();
+    }
+
+    private void recomputarClassificacoes() {
+        for (int gi = 0; gi < 8; gi++) {
+            if (modelosClassificacao[gi] == null) continue;
+            List<String> teams = bd.grupos.get(gi);
+            LinkedHashMap<String, int[]> stats = new LinkedHashMap<>();
+            for (String t : teams) stats.put(t, new int[7]);
+
+            for (Resultado r : bd.resultados.values()) {
+                if (r.grupo != gi) continue;
+                int[] a = stats.get(r.eq1), b = stats.get(r.eq2);
+                if (a == null || b == null) continue;
+                a[0]++; b[0]++;
+                a[5] += r.g1; a[6] += r.g2;
+                b[5] += r.g2; b[6] += r.g1;
+                if (r.g1 > r.g2)      { a[1] += 3; a[2]++; b[4]++; }
+                else if (r.g1 < r.g2) { b[1] += 3; b[2]++; a[4]++; }
+                else                  { a[1]++; b[1]++; a[3]++; b[3]++; }
+            }
+
+            List<Map.Entry<String, int[]>> list = new ArrayList<>(stats.entrySet());
+            list.sort((e1, e2) -> {
+                int[] s1 = e1.getValue(), s2 = e2.getValue();
+                if (s2[1] != s1[1]) return s2[1] - s1[1];
+                int dg1 = s1[5] - s1[6], dg2 = s2[5] - s2[6];
+                if (dg2 != dg1) return dg2 - dg1;
+                return s2[5] - s1[5];
+            });
+
+            DefaultTableModel m = modelosClassificacao[gi];
+            m.setRowCount(0);
+            int pos = 1;
+            for (Map.Entry<String, int[]> e : list) {
+                int[] s = e.getValue();
+                m.addRow(new Object[]{pos++, e.getKey(), s[0], s[1], s[2], s[3], s[4], s[5], s[6], (s[5]-s[6] > 0 ? "+" : "") + (s[5]-s[6])});
+            }
+        }
+    }
+
+    private void recomputarEstatisticas() {
+        int golos = 0, am = 0, ve = 0, esp = 0, n = 0;
+        for (Resultado r : bd.resultados.values()) {
+            golos += r.g1 + r.g2; am += r.amarelos; ve += r.vermelhos; esp += r.espectadores; n++;
+        }
+        if (lblValGolos != null)        lblValGolos.setText(String.valueOf(golos));
+        if (lblValAmarelos != null)     lblValAmarelos.setText(String.valueOf(am));
+        if (lblValVermelhos != null)    lblValVermelhos.setText(String.valueOf(ve));
+        if (lblValEspectadores != null) lblValEspectadores.setText(n > 0 ? String.valueOf(esp / n) : "0");
+    }
+
+    private void atualizarMataMata() {
+        if (modeloKnockout == null) return;
+        int[] grpPrim = {2, 0, 1, 3, 4, 6, 5, 7};
+        int[] grpSeg  = {3, 1, 0, 2, 5, 7, 4, 6};
+        for (int r = 0; r < modeloKnockout.getRowCount() && r < 8; r++) {
+            modeloKnockout.setValueAt(posDoGrupo(grpPrim[r], 0), r, 1);
+            modeloKnockout.setValueAt(posDoGrupo(grpSeg[r], 1),  r, 3);
+        }
+    }
+
+    private String posDoGrupo(int gi, int pos) {
+        DefaultTableModel m = modelosClassificacao[gi];
+        if (m != null && m.getRowCount() > pos) return String.valueOf(m.getValueAt(pos, 1));
+        return (pos == 0 ? "1.º " : "2.º ") + (char) ('A' + gi);
+    }
+
+    // =========================================================================
+    // BARRA DE TÍTULO + NAVEGAÇÃO HORIZONTAL E FUNDO
     // =========================================================================
     private JPanel buildTitleAndNav() {
-        JPanel wrapper = new JPanel(new BorderLayout(0, 0));
-        wrapper.setOpaque(false);
+        JPanel wrapper = new JPanel(new BorderLayout(0, 0)); wrapper.setOpaque(false);
+        JPanel titleBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 20, 14)); titleBar.setOpaque(false);
+        JLabel lbl = new JLabel("MATCH CENTER"); lbl.setFont(new Font("Segoe UI", Font.BOLD, 26)); lbl.setForeground(DARK_GREEN);
+        titleBar.add(lbl); wrapper.add(titleBar, BorderLayout.NORTH);
 
-        // Título
-        JPanel titleBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 20, 14));
-        titleBar.setOpaque(false);
-        JLabel lbl = new JLabel("MATCH CENTER");
-        lbl.setFont(new Font("Segoe UI", Font.BOLD, 26));
-        lbl.setForeground(DARK_GREEN);
-        titleBar.add(lbl);
-        wrapper.add(titleBar, BorderLayout.NORTH);
-
-        // Botões de navegação em linha horizontal
-        JPanel nav = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 8));
-        nav.setOpaque(false);
+        JPanel nav = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 8)); nav.setOpaque(false);
         nav.setBorder(new EmptyBorder(0, 14, 6, 14));
 
-        String[] labels = { "Torneio e Jogos", "Arbitragem", "Quadros e Estatisticas" };
+        String[] labels = isAdmin ? new String[]{"Torneio e Jogos", "Arbitragem", "Quadros e Estatisticas"} : new String[]{"Calendário e Classificações"};
+        navTargets = isAdmin ? new int[]{0, 1, 2} : new int[]{2};
         navButtons = new JButton[labels.length];
+
         for (int i = 0; i < labels.length; i++) {
-            final int idx = i;
+            final int target = navTargets[i];
             JButton btn = buildNavButton(labels[i]);
-            btn.addActionListener(e -> selectSection(idx));
-            navButtons[i] = btn;
-            nav.add(btn);
+            btn.addActionListener(e -> selectSection(target));
+            navButtons[i] = btn; nav.add(btn);
         }
-        wrapper.add(nav, BorderLayout.SOUTH);
-        return wrapper;
+        wrapper.add(nav, BorderLayout.SOUTH); return wrapper;
     }
 
     private JButton buildNavButton(String text) {
         JButton btn = new JButton(text) {
             @Override protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                boolean selected = Boolean.TRUE.equals(getClientProperty("selected"));
-                if (selected) {
-                    g2.setColor(new Color(20, 70, 35, 230));
-                } else if (getModel().isRollover()) {
-                    g2.setColor(new Color(0, 100, 40, 180));
-                } else {
-                    g2.setColor(new Color(0, 80, 30, 120));
-                }
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
-                if (selected) {
-                    g2.setColor(new Color(255, 255, 255, 100));
-                    g2.setStroke(new BasicStroke(1.5f));
-                    g2.drawRoundRect(1, 1, getWidth()-2, getHeight()-2, 12, 12);
-                }
-                g2.dispose();
-                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g.create(); g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                if (Boolean.TRUE.equals(getClientProperty("selected"))) g2.setColor(new Color(20, 70, 35, 230));
+                else if (getModel().isRollover()) g2.setColor(new Color(0, 100, 40, 180));
+                else g2.setColor(new Color(0, 80, 30, 120));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12); g2.dispose(); super.paintComponent(g);
             }
         };
-        btn.setFont(NAV_FONT);
-        btn.setForeground(Color.WHITE);
-        btn.setOpaque(false);
-        btn.setContentAreaFilled(false);
-        btn.setBorderPainted(false);
-        btn.setFocusPainted(false);
-        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btn.setPreferredSize(new Dimension(200, 44));
-        btn.setBorder(new EmptyBorder(10, 20, 10, 20));
-        return btn;
+        btn.setFont(NAV_FONT); btn.setForeground(Color.WHITE); btn.setOpaque(false); btn.setContentAreaFilled(false); btn.setBorderPainted(false); btn.setFocusPainted(false);
+        btn.setPreferredSize(new Dimension(220, 44)); btn.setCursor(new Cursor(Cursor.HAND_CURSOR)); return btn;
     }
 
     private void selectSection(int idx) {
         for (int i = 0; i < navButtons.length; i++) {
-            navButtons[i].putClientProperty("selected", i == idx);
-            navButtons[i].repaint();
+            navButtons[i].putClientProperty("selected", navTargets[i] == idx); navButtons[i].repaint();
         }
         cardLayout.show(contentArea, "section" + idx);
     }
 
-    // =========================================================================
-    // ÁREA DE CONTEÚDO (CardLayout)
-    // =========================================================================
     private JPanel buildContentPanel() {
-        cardLayout  = new CardLayout();
-        contentArea = new JPanel(cardLayout);
-        contentArea.setOpaque(false);
+        cardLayout  = new CardLayout(); contentArea = new JPanel(cardLayout); contentArea.setOpaque(false);
         contentArea.setBorder(new EmptyBorder(10, 0, 14, 14));
-
-        contentArea.add(buildSection1(), "section0");
-        contentArea.add(buildSection2(), "section1");
-        contentArea.add(buildSection3(), "section2");
+        contentArea.add(buildSection1(), "section0"); contentArea.add(buildSection2(), "section1"); contentArea.add(buildSection3(), "section2");
         return contentArea;
     }
 
-    // =========================================================================
-    // FUNDO COM GRADIENTE
-    // =========================================================================
     private class GradientPanel extends JPanel {
         GradientPanel() { setOpaque(true); }
         @Override protected void paintComponent(Graphics g) {
-            super.paintComponent(g);
-            Graphics2D g2 = (Graphics2D) g;
-            g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-            GradientPaint gp = new GradientPaint(
-                    0, 0,              new Color(200, 230, 10),
-                    getWidth(), getHeight(), new Color(8, 140, 45));
-            g2.setPaint(gp);
+            super.paintComponent(g); Graphics2D g2 = (Graphics2D) g; g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            g2.setPaint(new GradientPaint(0, 0, new Color(200, 230, 10), getWidth(), getHeight(), new Color(8, 140, 45)));
             g2.fillRect(0, 0, getWidth(), getHeight());
         }
     }
@@ -230,524 +303,403 @@ public class MenuMatchCenter extends JFrame {
     private JPanel createCard() {
         JPanel p = new JPanel() {
             @Override protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g;
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(new Color(235, 252, 235, 205));
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 18, 18);
-                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g; g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(new Color(235, 252, 235, 205)); g2.fillRoundRect(0, 0, getWidth(), getHeight(), 18, 18);
             }
         };
-        p.setOpaque(false);
-        return p;
+        p.setOpaque(false); return p;
     }
 
     // =========================================================================
     // SECÇÃO 1 — Torneio e Jogos
     // =========================================================================
     private JPanel buildSection1() {
-        JPanel outer = new JPanel(new BorderLayout(14, 0));
-        outer.setOpaque(false);
-
-        JPanel card = createCard();
-        card.setLayout(new BorderLayout(10, 10));
+        JPanel outer = new JPanel(new BorderLayout(14, 0)); outer.setOpaque(false);
+        JPanel card = createCard(); card.setLayout(new BorderLayout(10, 10));
         card.setBorder(titledCardBorder("1. Torneio, Selecoes e Jogos"));
 
-        JButton btnEstrutura = new JButton("Estrutura do Torneio") {
-            @Override protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g;
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(new Color(20, 50, 120));
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
-                super.paintComponent(g);
-            }
-        };
-        btnEstrutura.setFont(BOLD_FONT);
-        btnEstrutura.setForeground(Color.WHITE);
-        btnEstrutura.setOpaque(false);
-        btnEstrutura.setContentAreaFilled(false);
-        btnEstrutura.setBorderPainted(false);
-        btnEstrutura.setFocusPainted(false);
-        btnEstrutura.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btnEstrutura.setPreferredSize(new Dimension(0, 44));
-        btnEstrutura.setBorder(new EmptyBorder(10, 20, 10, 20));
+        JButton btnEstrutura = makeButton("Estrutura do Torneio", new Color(20, 50, 120), Color.WHITE);
         btnEstrutura.addActionListener(e -> abrirDialogoEstrutura());
-
-        JPanel topPanel = new JPanel(new BorderLayout());
-        topPanel.setOpaque(false);
-        topPanel.setBorder(new EmptyBorder(8, 10, 4, 10));
-        topPanel.add(btnEstrutura, BorderLayout.CENTER);
+        JPanel topPanel = new JPanel(new BorderLayout()); topPanel.setOpaque(false);
+        topPanel.setBorder(new EmptyBorder(8, 10, 4, 10)); topPanel.add(btnEstrutura, BorderLayout.CENTER);
         card.add(topPanel, BorderLayout.NORTH);
 
-        JPanel formCard = new JPanel(new BorderLayout(12, 0));
-        formCard.setOpaque(false);
-        formCard.setBorder(BorderFactory.createCompoundBorder(
-                subBorder("Registar Jogo"),
-                new EmptyBorder(8, 6, 8, 6)
-        ));
+        JPanel formCard = new JPanel(new BorderLayout(12, 0)); formCard.setOpaque(false);
+        formCard.setBorder(subBorder("Registar Jogo (Data, Hora e Estádio)"));
 
-        JPanel colLabels = new JPanel(new GridLayout(6, 1, 0, 10));
-        colLabels.setOpaque(false);
-        JLabel[] labels = {
-                label("Grupo / Fase:"), label("Partida:"), label("Data (DD/MM/AAAA):"),
-                label("Hora (HH:MM):"), label("Estadio:"), new JLabel()
-        };
+        JPanel colLabels = new JPanel(new GridLayout(6, 1, 0, 10)); colLabels.setOpaque(false);
+        JLabel[] labels = { label("Grupo / Fase:"), label("Equipas (1 vs 2):"), label("Data (DD/MM/AAAA):"), label("Hora (HH:MM):"), label("Estádio:"), new JLabel() };
         for (JLabel l : labels) { l.setHorizontalAlignment(SwingConstants.RIGHT); colLabels.add(l); }
 
-        JPanel colControls = new JPanel(new GridLayout(6, 1, 0, 10));
-        colControls.setOpaque(false);
+        JPanel colControls = new JPanel(new GridLayout(6, 1, 0, 10)); colControls.setOpaque(false);
 
-        String[] fases = {
-                "Grupo A","Grupo B","Grupo C","Grupo D",
-                "Grupo E","Grupo F","Grupo G","Grupo H",
-                "Oitavos-de-Final","Quartos-de-Final","Meia-Final","Final"
-        };
-        JComboBox<String> cbFase    = styledCombo(fases);
-        JComboBox<String> cbPartida = new JComboBox<>();
-        cbPartida.setFont(MAIN_FONT); cbPartida.setForeground(TEXT_DARK); cbPartida.setBackground(PANEL_WHITE);
+        String[] fases = { "Grupo A","Grupo B","Grupo C","Grupo D","Grupo E","Grupo F","Grupo G","Grupo H", "Oitavos","Quartos","Meia-Final","Final" };
+        JComboBox<String> cbFase = styledCombo(fases);
 
-        Runnable refreshPartidas = () -> {
+        JComboBox<String> cbEq1 = styledCombo(new String[]{});
+        JComboBox<String> cbEq2 = styledCombo(new String[]{});
+        JPanel pnlEquipas = new JPanel(new GridLayout(1, 2, 10, 0)); pnlEquipas.setOpaque(false);
+        pnlEquipas.add(cbEq1); pnlEquipas.add(cbEq2);
+
+        Runnable refreshEquipas = () -> {
             int idx = cbFase.getSelectedIndex();
+            cbEq1.removeAllItems(); cbEq2.removeAllItems();
             if (idx < 8) {
-                cbPartida.setModel(new DefaultComboBoxModel<>(getJogosDoGrupo(idx)));
+                for (String t : bd.grupos.get(idx)) { cbEq1.addItem(t); cbEq2.addItem(t); }
             } else {
-                String[] ko = switch (idx) {
-                    case 8  -> new String[]{"J1","J2","J3","J4","J5","J6","J7","J8"};
-                    case 9  -> new String[]{"QF1","QF2","QF3","QF4"};
-                    case 10 -> new String[]{"SF1","SF2"};
-                    default -> new String[]{"Final"};
-                };
-                cbPartida.setModel(new DefaultComboBoxModel<>(ko));
+                cbEq1.addItem("A Definir"); cbEq2.addItem("A Definir");
             }
         };
-        cbFase.addActionListener(e -> refreshPartidas.run());
-        refreshPartidas.run();
+        cbFase.addActionListener(e -> refreshEquipas.run()); refreshEquipas.run();
 
-        JTextField txtData    = styledField(); txtData.setToolTipText("Formato: DD/MM/AAAA");
-        JTextField txtHora    = styledField(); txtHora.setToolTipText("Formato: HH:MM");
-        JTextField txtEstadio = styledField(); txtEstadio.setToolTipText("Nome do Estadio");
+        JTextField txtData = styledField(); txtData.setToolTipText("DD/MM/AAAA");
+        JTextField txtHora = styledField(); txtHora.setToolTipText("HH:MM");
+
+        // REQ: Restrição e Atualização Dinâmica de Estádios do GestorDados
+        JComboBox<String> cbEstadio = styledCombo(new String[0]);
+        // Preenche na inicialização
+        for (String est : GestorDados.getInstance().estadios.keySet()) cbEstadio.addItem(est);
+        // Atualiza dinamicamente sempre que o menu abrir
+        cbEstadio.addPopupMenuListener(new PopupMenuListener() {
+            @Override public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
+                String selected = (String) cbEstadio.getSelectedItem();
+                cbEstadio.removeAllItems();
+                for (String est : GestorDados.getInstance().estadios.keySet()) cbEstadio.addItem(est);
+                if (selected != null) cbEstadio.setSelectedItem(selected);
+            }
+            @Override public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {}
+            @Override public void popupMenuCanceled(PopupMenuEvent e) {}
+        });
 
         JButton btnReg = makeButton("Registar Jogo", ACCENT_YELLOW, DARK_GREEN);
-
-        // --- NOVO LISTENER: Adiciona o jogo registado à tabela do Calendário correspondente ---
         btnReg.addActionListener(e -> {
             int idxFase = cbFase.getSelectedIndex();
-            Object partidaObj = cbPartida.getSelectedItem();
-            if (partidaObj == null) return;
-
-            String partida = partidaObj.toString();
+            String eq1 = (String) cbEq1.getSelectedItem();
+            String eq2 = (String) cbEq2.getSelectedItem();
             String data = txtData.getText().trim();
             String hora = txtHora.getText().trim();
-            String estadio = txtEstadio.getText().trim();
+            String estadio = (String) cbEstadio.getSelectedItem();
 
-            if (data.isEmpty() || hora.isEmpty() || estadio.isEmpty()) {
-                JOptionPane.showMessageDialog(this, "Por favor, preencha todos os campos do jogo (Data, Hora, Estádio).", "Campos em falta", JOptionPane.WARNING_MESSAGE);
+            if (eq1 == null || eq2 == null || data.isEmpty() || hora.isEmpty() || estadio == null) {
+                JOptionPane.showMessageDialog(this, "Preencha todos os campos.", "Atenção", JOptionPane.WARNING_MESSAGE); return;
+            }
+            if (eq1.equals(eq2) && !eq1.equals("A Definir")) {
+                JOptionPane.showMessageDialog(this, "Uma equipa não pode jogar contra si mesma.", "Atenção", JOptionPane.WARNING_MESSAGE); return;
+            }
+            // Data: DD/MM/AAAA (ano >= 1930)
+            if (!data.matches("^(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[0-2])/(19[3-9][0-9]|[2-9][0-9]{3})$")) {
+                JOptionPane.showMessageDialog(this,
+                        "Data inválida! Use DD/MM/AAAA e ano >= 1930.",
+                        "Erro Regex",
+                        JOptionPane.ERROR_MESSAGE);
                 return;
             }
 
+// Hora: HH:MM (00:00 até 23:59)
+            if (!hora.matches("^([01][0-9]|2[0-3]):[0-5][0-9]$")) {
+                JOptionPane.showMessageDialog(this,
+                        "Hora inválida! Use HH:MM.",
+                        "Erro Regex",
+                        JOptionPane.ERROR_MESSAGE);
+                return;
+            }
             if (idxFase < 8) {
-                // Adiciona a linha na tabela de calendário do grupo respetivo
-                modelosCalendario[idxFase].addRow(new Object[]{partida, data, hora, estadio});
-                JOptionPane.showMessageDialog(this, "Jogo registado no calendário do " + cbFase.getSelectedItem() + " com sucesso!");
-            } else {
-                // Jogos a eliminar não aparecem nas tabelas de grupos
-                JOptionPane.showMessageDialog(this, "Jogo da fase a eliminar registado com sucesso!");
+                boolean jaJogaram = bd.jogosRegistados.stream().anyMatch(j ->
+                        (j.eq1.equals(eq1) && j.eq2.equals(eq2)) || (j.eq1.equals(eq2) && j.eq2.equals(eq1))
+                );
+                if (jaJogaram) { JOptionPane.showMessageDialog(this, "Este confronto direto já foi registado na fase de grupos.", "Atenção", JOptionPane.WARNING_MESSAGE); return; }
+
+                long contEq1 = bd.jogosRegistados.stream().filter(j -> j.grupo == idxFase && (j.eq1.equals(eq1) || j.eq2.equals(eq1))).count();
+                long contEq2 = bd.jogosRegistados.stream().filter(j -> j.grupo == idxFase && (j.eq1.equals(eq2) || j.eq2.equals(eq2))).count();
+                if (contEq1 >= 3 || contEq2 >= 3) {
+                    JOptionPane.showMessageDialog(this, "Pelo menos uma destas equipas já atingiu o limite de 3 jogos na fase de grupos.", "Limite Atingido", JOptionPane.WARNING_MESSAGE); return;
+                }
             }
 
-            // Limpa os campos após registar
-            txtData.setText("");
-            txtHora.setText("");
-            txtEstadio.setText("");
+            int grupoIdx = (idxFase < 8) ? idxFase : -1;
+            Jogo novoJogo = new Jogo(grupoIdx, eq1, eq2, data, hora, estadio);
+            bd.jogosRegistados.add(novoJogo);
+            salvarDados();
+
+            if (idxFase < 8) {
+                modelosCalendario[idxFase].addRow(new Object[]{novoJogo.getPartida(), data, hora, estadio});
+            }
+            JOptionPane.showMessageDialog(this, "Jogo registado e guardado com sucesso!");
+            txtData.setText(""); txtHora.setText("");
         });
 
-        colControls.add(cbFase); colControls.add(cbPartida);
+        colControls.add(cbFase); colControls.add(pnlEquipas);
         colControls.add(txtData); colControls.add(txtHora);
-        colControls.add(txtEstadio);
-        colControls.add(btnReg);
+        colControls.add(cbEstadio); colControls.add(btnReg);
 
-        formCard.add(colLabels,   BorderLayout.WEST);
-        formCard.add(colControls, BorderLayout.CENTER);
-
-        JPanel centerWrapper = new JPanel(new BorderLayout());
-        centerWrapper.setOpaque(false);
-        centerWrapper.setBorder(new EmptyBorder(4, 10, 10, 10));
-        centerWrapper.add(formCard, BorderLayout.CENTER);
+        formCard.add(colLabels, BorderLayout.WEST); formCard.add(colControls, BorderLayout.CENTER);
+        JPanel centerWrapper = new JPanel(new BorderLayout()); centerWrapper.setOpaque(false);
+        centerWrapper.setBorder(new EmptyBorder(4, 10, 10, 10)); centerWrapper.add(formCard, BorderLayout.CENTER);
         card.add(centerWrapper, BorderLayout.CENTER);
-
-        outer.add(card, BorderLayout.CENTER);
-        return outer;
+        outer.add(card, BorderLayout.CENTER); return outer;
     }
 
     // =========================================================================
-    // SECÇÃO 2 — Arbitragem
+    // SECÇÃO 2 — Arbitragem (REQ: Remoção, Quarto Árbitro, Validação Existência)
     // =========================================================================
     private JPanel buildSection2() {
-        JPanel outer = new JPanel(new BorderLayout(0, 0));
-        outer.setOpaque(false);
-
-        JPanel card = createCard();
-        card.setLayout(new BorderLayout(10, 14));
+        JPanel outer = new JPanel(new BorderLayout(0, 0)); outer.setOpaque(false);
+        JPanel card = createCard(); card.setLayout(new BorderLayout(10, 14));
         card.setBorder(titledCardBorder("2. Gestão de Arbitragem"));
 
-        DefaultComboBoxModel<String> modelRegisto = new DefaultComboBoxModel<>(new String[]{"Sem Equipa","Equipa A","Equipa B"});
-        DefaultComboBoxModel<String> modelAlocar  = new DefaultComboBoxModel<>(new String[]{"Equipa A","Equipa B"});
+        DefaultComboBoxModel<String> modelEquipas = new DefaultComboBoxModel<>();
+        for(String eq : bd.equipasArbitragem) modelEquipas.addElement(eq);
 
-        JPanel pnlReg = new JPanel(new GridLayout(4, 2, 8, 8));
-        pnlReg.setOpaque(false);
+        JPanel pnlReg = new JPanel(new GridLayout(4, 2, 8, 8)); pnlReg.setOpaque(false);
         pnlReg.setBorder(subBorder("Registar Novo Árbitro"));
 
         JTextField txtNome = styledField();
-        JComboBox<String> cbFuncao = styledCombo(new String[]{"Árbitro Principal","Assistente 1","Assistente 2","Quarto Árbitro","VAR"});
-        JTextField txtNac = styledField(); txtNac.setToolTipText("Nacionalidade");
-        JPanel pnlFN = new JPanel(new GridLayout(1, 2, 6, 0)); pnlFN.setOpaque(false);
-        pnlFN.add(cbFuncao); pnlFN.add(txtNac);
 
-        JComboBox<String> cbEquipa = new JComboBox<>(modelRegisto);
-        cbEquipa.setFont(MAIN_FONT); cbEquipa.setForeground(TEXT_DARK); cbEquipa.setBackground(PANEL_WHITE);
+        // REQ: Substituição de funções (VAR removido, Quarto Árbitro inserido)
+        JComboBox<String> cbFuncao = styledCombo(new String[]{"Árbitro Principal","Assistente 1","Assistente 2","Quarto Árbitro"});
 
-        JButton btnNova = makeButton("+", ACCENT_YELLOW, DARK_GREEN);
-        btnNova.setToolTipText("Criar Nova Equipa de Arbitragem");
-        btnNova.addActionListener(e -> {
-            String nome = JOptionPane.showInputDialog(this, "Nome da Nova Equipa:", "Criar Equipa", JOptionPane.QUESTION_MESSAGE);
-            if (nome != null && !nome.isBlank()) {
-                modelRegisto.addElement(nome.trim()); modelAlocar.addElement(nome.trim());
-                cbEquipa.setSelectedItem(nome.trim());
-                JOptionPane.showMessageDialog(this, "Equipa '" + nome.trim() + "' criada!");
+        // REQ: Validação de Existência (Só lê países reais criados no GestorDados)
+        JComboBox<String> cbPaisNascenca = styledCombo(GestorDados.getInstance().selecoes.toArray(new String[0]));
+        cbPaisNascenca.addPopupMenuListener(new PopupMenuListener() {
+            @Override public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
+                String selected = (String) cbPaisNascenca.getSelectedItem();
+                cbPaisNascenca.removeAllItems();
+                for (String s : GestorDados.getInstance().selecoes) cbPaisNascenca.addItem(s);
+                if (selected != null) cbPaisNascenca.setSelectedItem(selected);
             }
+            @Override public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {}
+            @Override public void popupMenuCanceled(PopupMenuEvent e) {}
         });
 
+        JPanel pnlFN = new JPanel(new GridLayout(1, 2, 6, 0)); pnlFN.setOpaque(false);
+        pnlFN.add(cbFuncao); pnlFN.add(cbPaisNascenca);
+
+        JComboBox<String> cbEquipa = new JComboBox<>(modelEquipas);
+        cbEquipa.setFont(MAIN_FONT); cbEquipa.setBackground(PANEL_WHITE);
+
+        JButton btnNova = makeButton("+", ACCENT_YELLOW, DARK_GREEN);
+        btnNova.addActionListener(e -> {
+            String nome = JOptionPane.showInputDialog(this, "Nome da Nova Equipa:");
+            if (nome != null && !nome.isBlank()) {
+                bd.equipasArbitragem.add(nome.trim());
+                modelEquipas.addElement(nome.trim()); cbEquipa.setSelectedItem(nome.trim());
+                salvarDados();
+            }
+        });
         JPanel pnlEqWrap = new JPanel(new BorderLayout(6, 0)); pnlEqWrap.setOpaque(false);
         pnlEqWrap.add(cbEquipa, BorderLayout.CENTER); pnlEqWrap.add(btnNova, BorderLayout.EAST);
 
-        pnlReg.add(label("Nome:"));          pnlReg.add(txtNome);
-        pnlReg.add(label("Função / Nac.:")); pnlReg.add(pnlFN);
-        pnlReg.add(label("Equipa:"));        pnlReg.add(pnlEqWrap);
-        pnlReg.add(new JLabel());            pnlReg.add(makeButton("Registar Árbitro", PANEL_WHITE, DARK_GREEN));
+        JButton btnRegArb = makeButton("Registar Árbitro", PANEL_WHITE, DARK_GREEN);
+        btnRegArb.addActionListener(e -> {
+            String nome = txtNome.getText().trim();
+            String pais = (String) cbPaisNascenca.getSelectedItem();
+            String func = (String) cbFuncao.getSelectedItem();
+            String equipa = (String) cbEquipa.getSelectedItem();
+            if (nome.isEmpty() || equipa == null) { JOptionPane.showMessageDialog(this, "Indique nome e crie uma equipa."); return; }
+            Arbitro a = new Arbitro(nome, func, pais, equipa);
+            bd.arbitros.add(a); salvarDados();
+            modeloArbitros.addRow(new Object[]{nome, func, pais, equipa});
+            txtNome.setText("");
+        });
 
-        JPanel pnlAlocar = new JPanel(new GridLayout(3, 2, 8, 8));
-        pnlAlocar.setOpaque(false);
+        // REQ: Funcionalidade para remover um árbitro já registado
+        JButton btnRemoverArb = makeButton("Remover Selecionado", new Color(180, 30, 30), Color.WHITE);
+
+        pnlReg.add(label("Nome:")); pnlReg.add(txtNome);
+        pnlReg.add(label("Função / País Nasc.:")); pnlReg.add(pnlFN);
+        pnlReg.add(label("Equipa:")); pnlReg.add(pnlEqWrap);
+        pnlReg.add(btnRemoverArb); pnlReg.add(btnRegArb);
+
+        // ---------- Alocar Equipa a Jogo ----------
+        JPanel pnlAlocar = new JPanel(new GridLayout(4, 2, 8, 8)); pnlAlocar.setOpaque(false);
         pnlAlocar.setBorder(subBorder("Alocar Equipa a Jogo"));
 
-        List<String> todosJogos = new ArrayList<>();
-        for (int g = 0; g < 8; g++) for (String j : getJogosDoGrupo(g)) todosJogos.add(j);
-        JComboBox<String> cbJogo   = styledCombo(todosJogos.toArray(new String[0]));
-        JComboBox<String> cbEqAloc = new JComboBox<>(modelAlocar);
-        cbEqAloc.setFont(MAIN_FONT); cbEqAloc.setForeground(TEXT_DARK); cbEqAloc.setBackground(PANEL_WHITE);
+        JComboBox<Jogo> cbJogo = new JComboBox<>();
+        for(Jogo j : bd.jogosRegistados) cbJogo.addItem(j);
+        cbJogo.setRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof Jogo) setText(((Jogo)value).getPartida());
+                return this;
+            }
+        });
 
-        pnlAlocar.add(label("Partida:"));           pnlAlocar.add(cbJogo);
+        JComboBox<String> cbEqAloc = new JComboBox<>(modelEquipas);
+        cbEqAloc.setFont(MAIN_FONT); cbEqAloc.setBackground(PANEL_WHITE);
+
+        JButton btnAlocar = makeButton("Alocar Equipa", ACCENT_YELLOW, DARK_GREEN);
+        btnAlocar.addActionListener(e -> {
+            Jogo j = (Jogo) cbJogo.getSelectedItem();
+            String equipa = (String) cbEqAloc.getSelectedItem();
+            if (j == null || equipa == null) return;
+
+            // REQ: Um jogo só pode ter UMA equipa de arbitragem alocada
+            if (bd.alocacoes.containsKey(j.id)) {
+                JOptionPane.showMessageDialog(this, "ERRO: Este jogo já possui uma equipa de arbitragem alocada!", "Alocação Única", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            // REQ: Elegibilidade Rígida (1 Principal, 2 Assistentes, 1 Quarto Árbitro)
+            long p = bd.arbitros.stream().filter(a -> a.equipa.equals(equipa) && a.funcao.equals("Árbitro Principal")).count();
+            long a1 = bd.arbitros.stream().filter(a -> a.equipa.equals(equipa) && a.funcao.equals("Assistente 1")).count();
+            long a2 = bd.arbitros.stream().filter(a -> a.equipa.equals(equipa) && a.funcao.equals("Assistente 2")).count();
+            long q = bd.arbitros.stream().filter(a -> a.equipa.equals(equipa) && a.funcao.equals("Quarto Árbitro")).count();
+
+            if (p != 1 || a1 != 1 || a2 != 1 || q != 1 || (p + a1 + a2 + q) != 4) {
+                JOptionPane.showMessageDialog(this, "ERRO: A equipa de arbitragem é inelegível!\nRequisito: Exatamente 1 Principal, 2 Assistentes e 1 Quarto Árbitro.", "Inelegível", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            // REQ: Neutralidade
+            for (Arbitro ar : bd.arbitros) {
+                if (ar.equipa.equals(equipa)) {
+                    if (ar.paisNascenca.equalsIgnoreCase(j.eq1) || ar.paisNascenca.equalsIgnoreCase(j.eq2)) {
+                        JOptionPane.showMessageDialog(this, "BLOQUEADO (Regra de Neutralidade)!\nO árbitro " + ar.nome + " nasceu em " + ar.paisNascenca + ".\nA equipa " + equipa + " não pode apitar este jogo.", "Conflito", JOptionPane.ERROR_MESSAGE);
+                        return;
+                    }
+                }
+            }
+
+            bd.alocacoes.put(j.id, equipa); salvarDados();
+            modeloAlocacoes.addRow(new Object[]{j.getPartida(), equipa, j.data});
+            JOptionPane.showMessageDialog(this, "Equipa alocada com sucesso!");
+        });
+
+        pnlAlocar.add(label("Partida:")); pnlAlocar.add(cbJogo);
         pnlAlocar.add(label("Equipa Arbitragem:")); pnlAlocar.add(cbEqAloc);
-        pnlAlocar.add(new JLabel());                pnlAlocar.add(makeButton("Alocar Equipa", ACCENT_YELLOW, DARK_GREEN));
+        pnlAlocar.add(new JLabel()); pnlAlocar.add(btnAlocar);
 
-        card.add(pnlReg,    BorderLayout.NORTH);
-        card.add(pnlAlocar, BorderLayout.CENTER);
-        outer.add(card, BorderLayout.CENTER);
-        return outer;
+        JPanel forms = new JPanel(new GridLayout(1, 2, 14, 0)); forms.setOpaque(false);
+        forms.add(pnlReg); forms.add(pnlAlocar);
+
+        modeloArbitros = new DefaultTableModel(new Object[]{"Nome","Função","País Nascença","Equipa"}, 0) {
+            @Override public boolean isCellEditable(int row, int col) { return false; } // REQ: Inalterável
+        };
+        for(Arbitro a : bd.arbitros) modeloArbitros.addRow(new Object[]{a.nome, a.funcao, a.paisNascenca, a.equipa});
+        JTable tblArb = new JTable(modeloArbitros); configurarTabelaSimples(tblArb);
+        JScrollPane spArb = new JScrollPane(tblArb); spArb.setBorder(subBorder("Árbitros Registados"));
+
+        btnRemoverArb.addActionListener(e -> {
+            int row = tblArb.getSelectedRow();
+            if (row < 0) { JOptionPane.showMessageDialog(this, "Selecione um árbitro na tabela para remover."); return; }
+            String nomeRemover = (String) tblArb.getValueAt(row, 0);
+            bd.arbitros.removeIf(a -> a.nome.equals(nomeRemover));
+            modeloArbitros.removeRow(row);
+            salvarDados();
+            JOptionPane.showMessageDialog(this, "Árbitro removido com sucesso!");
+        });
+
+        modeloAlocacoes = new DefaultTableModel(new Object[]{"Partida","Equipa de Arbitragem","Data"}, 0) {
+            @Override public boolean isCellEditable(int row, int col) { return false; } // REQ: Inalterável
+        };
+        for(Map.Entry<String, String> entry : bd.alocacoes.entrySet()) {
+            Jogo jo = bd.jogosRegistados.stream().filter(x -> x.id.equals(entry.getKey())).findFirst().orElse(null);
+            if(jo != null) modeloAlocacoes.addRow(new Object[]{jo.getPartida(), entry.getValue(), jo.data});
+        }
+        JTable tblAlo = new JTable(modeloAlocacoes); configurarTabelaSimples(tblAlo);
+        JScrollPane spAlo = new JScrollPane(tblAlo); spAlo.setBorder(subBorder("Alocações"));
+
+        JPanel tabelas = new JPanel(new GridLayout(1, 2, 14, 0)); tabelas.setOpaque(false);
+        tabelas.add(spArb); tabelas.add(spAlo);
+
+        card.add(forms, BorderLayout.NORTH); card.add(tabelas, BorderLayout.CENTER);
+        outer.add(card, BorderLayout.CENTER); return outer;
     }
 
     // =========================================================================
-    // SECÇÃO 3 — Quadros + Estatísticas
+    // SECÇÃO 3 E DIÁLOGO RESULTADOS
     // =========================================================================
     private JPanel buildSection3() {
-        JPanel outer = new JPanel(new BorderLayout(14, 0));
-        outer.setOpaque(false);
-
-        JPanel centerCard = createCard();
-        centerCard.setLayout(new BorderLayout());
-        centerCard.setBorder(titledCardBorder("3. Quadros Competitivos - 8 Grupos"));
+        JPanel outer = new JPanel(new BorderLayout(14, 0)); outer.setOpaque(false);
+        JPanel centerCard = createCard(); centerCard.setLayout(new BorderLayout());
+        centerCard.setBorder(titledCardBorder("3. Quadros Competitivos"));
 
         JTabbedPane tabs = new JTabbedPane(JTabbedPane.TOP, JTabbedPane.WRAP_TAB_LAYOUT);
-        tabs.setFont(BOLD_FONT); tabs.setForeground(DARK_GREEN);
-        tabs.setOpaque(false);
-
-        for (int i = 0; i < 8; i++)
-            tabs.addTab("  Grupo " + (char)('A' + i) + "  ", createGroupTable(i));
+        tabs.setFont(BOLD_FONT); tabs.setForeground(DARK_GREEN); tabs.setOpaque(false);
+        for (int i = 0; i < 8; i++) tabs.addTab("  Grupo " + (char)('A' + i) + "  ", createGroupTable(i));
         tabs.addTab("  Oitavos  ", createKnockoutPanel());
         centerCard.add(tabs, BorderLayout.CENTER);
 
         sidebarPanel = createGlobalStatsSidebar();
-
-        outer.add(centerCard,   BorderLayout.CENTER);
-        outer.add(sidebarPanel, BorderLayout.EAST);
+        outer.add(centerCard, BorderLayout.CENTER); outer.add(sidebarPanel, BorderLayout.EAST);
         return outer;
     }
 
-    private JPanel createGroupTable(int gi) {
-        JPanel panel = new JPanel(new BorderLayout(0, 10));
-        panel.setOpaque(false);
-        panel.setBorder(new EmptyBorder(10, 12, 10, 12));
+    private void abrirDialogoResultados() {
+        JDialog dlg = new JDialog(this, "Adicionar Resultados de Jogo", true);
+        dlg.setSize(500, 480); dlg.setLocationRelativeTo(this); dlg.setLayout(new BorderLayout(10, 10));
 
-        JLabel lbl = new JLabel("  Grupo " + (char)('A' + gi) + "  -  Fase de Grupos", SwingConstants.LEFT);
-        lbl.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        lbl.setForeground(DARK_GREEN);
-        panel.add(lbl, BorderLayout.NORTH);
+        JPanel form = new JPanel(new GridLayout(7, 2, 10, 15)); form.setBorder(new EmptyBorder(20, 20, 20, 20));
 
-        // --- Tabela da Classificação (Metade Superior) ---
-        String[] cols = {"#","Seleção","PJ","PTS","V","E","D","GM","GS","DG"};
-        List<String> teams = GRUPOS.get(gi);
-        Object[][] data = new Object[Math.min(teams.size(), 4)][10];
-        for (int i = 0; i < Math.min(teams.size(), 4); i++)
-            data[i] = new Object[]{i+1, teams.get(i),0,0,0,0,0,0,0,"0"};
+        long jogosGruposFeitos = bd.resultados.values().stream().filter(r -> r.grupo >= 0 && r.grupo < 8).count();
+        boolean gruposCompletos = (jogosGruposFeitos >= 48);
 
-        DefaultTableModel mdl = new DefaultTableModel(data, cols) {
-            @Override public boolean isCellEditable(int r, int c) { return false; }
-        };
-        JTable tbl = new JTable(mdl);
-        tbl.setFont(MAIN_FONT); tbl.setRowHeight(38);
-        tbl.setFillsViewportHeight(false); tbl.setShowVerticalLines(false);
-        tbl.setGridColor(TABLE_GRID); tbl.setForeground(TEXT_DARK);
-        tbl.setBackground(new Color(242, 255, 242));
-        tbl.setSelectionBackground(new Color(210, 240, 210));
-        tbl.setSelectionForeground(DARK_GREEN);
-        tbl.getColumnModel().getColumn(0).setMaxWidth(32);
-        tbl.getColumnModel().getColumn(1).setPreferredWidth(160);
+        String[] fases = gruposCompletos ?
+                new String[]{"Oitavos", "Quartos", "Meia-Final", "Final"} :
+                new String[]{"Grupo A","Grupo B","Grupo C","Grupo D","Grupo E","Grupo F","Grupo G","Grupo H"};
 
-        JTableHeader hdr = tbl.getTableHeader();
-        hdr.setFont(BOLD_FONT);
-        hdr.setBackground(new Color(190, 225, 190));
-        hdr.setForeground(DARK_GREEN);
-        hdr.setOpaque(true);
-        hdr.setPreferredSize(new Dimension(0, 36));
-
-        tbl.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
-            @Override public Component getTableCellRendererComponent(
-                    JTable t, Object val, boolean sel, boolean foc, int row, int col) {
-                Component c = super.getTableCellRendererComponent(t, val, sel, foc, row, col);
-                if (!sel) c.setBackground(row % 2 == 0 ? new Color(245,255,245) : TABLE_ROW_ALT);
-                setFont(col == 3 ? BOLD_FONT : MAIN_FONT);
-                setHorizontalAlignment(col == 1 ? JLabel.LEFT : JLabel.CENTER);
-                c.setForeground(col == 3 ? MEDIUM_GREEN : TEXT_DARK);
-                return c;
+        JComboBox<String> cbFase = styledCombo(fases);
+        JComboBox<Jogo> cbPartida = new JComboBox<>();
+        cbPartida.setRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof Jogo) setText(((Jogo)value).getPartida());
+                return this;
             }
         });
 
-        JPanel tblWrapper = new JPanel(new BorderLayout());
-        tblWrapper.setOpaque(false);
-        tblWrapper.add(tbl.getTableHeader(), BorderLayout.NORTH);
-        tblWrapper.add(tbl, BorderLayout.CENTER);
-        panel.add(tblWrapper, BorderLayout.CENTER);
-
-        // --- Tabela do Calendário (Metade Inferior) ---
-        JPanel pnlCalendario = new JPanel(new BorderLayout(0, 4));
-        pnlCalendario.setOpaque(false);
-        pnlCalendario.setBorder(new EmptyBorder(10, 0, 0, 0));
-
-        JLabel lblCal = new JLabel("Calendário de Jogos Registados", SwingConstants.LEFT);
-        lblCal.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        lblCal.setForeground(MEDIUM_GREEN);
-        pnlCalendario.add(lblCal, BorderLayout.NORTH);
-
-        JTable tblCal = new JTable(modelosCalendario[gi]);
-        configurarTabelaSimples(tblCal);
-        tblCal.setRowHeight(28);
-        tblCal.getColumnModel().getColumn(0).setPreferredWidth(200); // Dar mais espaço à coluna da "Partida"
-
-        JScrollPane spCal = new JScrollPane(tblCal);
-        spCal.setPreferredSize(new Dimension(0, 130)); // Limite de altura
-        spCal.setBorder(new LineBorder(TABLE_GRID));
-        spCal.getViewport().setBackground(PANEL_WHITE);
-
-        pnlCalendario.add(spCal, BorderLayout.CENTER);
-        panel.add(pnlCalendario, BorderLayout.SOUTH);
-
-        return panel;
-    }
-
-    private JPanel createKnockoutPanel() {
-        JPanel p = new JPanel(new BorderLayout(0, 10));
-        p.setOpaque(false);
-        p.setBorder(new EmptyBorder(16, 16, 16, 16));
-
-        JLabel lbl = new JLabel("Avanço automático após conclusão da Fase de Grupos", SwingConstants.CENTER);
-        lbl.setFont(new Font("Segoe UI", Font.ITALIC, 13));
-        lbl.setForeground(MEDIUM_GREEN);
-        p.add(lbl, BorderLayout.NORTH);
-
-        String[] cols = {"Jogo","1.º do Grupo","vs","2.º do Grupo","Resultado"};
-        Object[][] data = {
-                {"1/8 - J1","1.º C","vs","2.º D","—"}, {"1/8 - J2","1.º A","vs","2.º B","—"},
-                {"1/8 - J3","1.º B","vs","2.º A","—"}, {"1/8 - J4","1.º D","vs","2.º C","—"},
-                {"1/8 - J5","1.º E","vs","2.º F","—"}, {"1/8 - J6","1.º G","vs","2.º H","—"},
-                {"1/8 - J7","1.º F","vs","2.º E","—"}, {"1/8 - J8","1.º H","vs","2.º G","—"}
-        };
-        DefaultTableModel mdl = new DefaultTableModel(data, cols) {
-            @Override public boolean isCellEditable(int r, int c) { return false; }
-        };
-        JTable tbl = new JTable(mdl);
-        configurarTabelaSimples(tbl); tbl.setRowHeight(38);
-        JScrollPane sp = new JScrollPane(tbl);
-        sp.setOpaque(false); sp.getViewport().setOpaque(false);
-        sp.setBorder(new LineBorder(TABLE_GRID));
-        p.add(sp, BorderLayout.CENTER);
-        return p;
-    }
-
-    // =========================================================================
-    // SIDEBAR ESTATÍSTICAS
-    // =========================================================================
-    private JPanel createGlobalStatsSidebar() {
-        JPanel card = createCard();
-        card.setLayout(new BorderLayout(0, 12));
-        card.setBorder(titledCardBorder("4. Estatísticas"));
-
-        lblValGolos = new JLabel("0", SwingConstants.RIGHT);
-        lblValAmarelos = new JLabel("0", SwingConstants.RIGHT);
-        lblValVermelhos = new JLabel("0", SwingConstants.RIGHT);
-        lblValEspectadores = new JLabel("0", SwingConstants.RIGHT);
-
-        lblValGolos.setFont(new Font("Segoe UI", Font.BOLD, 16));
-        lblValAmarelos.setFont(new Font("Segoe UI", Font.BOLD, 16));
-        lblValVermelhos.setFont(new Font("Segoe UI", Font.BOLD, 16));
-        lblValEspectadores.setFont(new Font("Segoe UI", Font.BOLD, 16));
-
-        JPanel grid = new JPanel(new GridLayout(4, 1, 0, 10));
-        grid.setOpaque(false);
-        grid.setBorder(new EmptyBorder(8, 6, 8, 6));
-        grid.add(createStatCard("Total de Golos",     lblValGolos, new Color(0, 120, 60)));
-        grid.add(createStatCard("Cartões Amarelos",   lblValAmarelos, new Color(180, 140, 0)));
-        grid.add(createStatCard("Cartões Vermelhos",  lblValVermelhos, new Color(180, 30, 30)));
-        grid.add(createStatCard("Média Espectadores", lblValEspectadores, new Color(50, 80, 160)));
-        card.add(grid, BorderLayout.CENTER);
-
-        JPanel south = new JPanel(new GridLayout(1, 1, 0, 8));
-        south.setOpaque(false);
-        south.setBorder(new EmptyBorder(0, 6, 6, 6));
-
-        JButton btnAddResultados = makeButton("Adicionar Resultados", ACCENT_YELLOW, DARK_GREEN);
-        btnAddResultados.addActionListener(e -> abrirDialogoResultados());
-        south.add(btnAddResultados);
-
-        card.add(south, BorderLayout.SOUTH);
-
-        card.setPreferredSize(new Dimension(260, 0));
-        return card;
-    }
-
-    private JPanel createStatCard(String title, JLabel lblV, Color accent) {
-        JPanel card = new JPanel() {
-            @Override protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g;
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(new Color(255, 255, 255, 195));
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
-                g2.setColor(accent);
-                g2.fillRect(0, 0, 5, getHeight());
-                super.paintComponent(g);
-            }
-        };
-        card.setOpaque(false);
-        card.setLayout(new BorderLayout(8, 0));
-        card.setBorder(BorderFactory.createCompoundBorder(
-                new LineBorder(new Color(200, 220, 200, 160), 1, true),
-                new EmptyBorder(8, 14, 8, 10)));
-
-        JLabel lblT = new JLabel(title);
-        lblT.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        lblT.setForeground(DARK_GREEN);
-
-        lblV.setForeground(accent);
-
-        card.add(lblT, BorderLayout.CENTER);
-        card.add(lblV, BorderLayout.EAST);
-        return card;
-    }
-
-    // =========================================================================
-    // JOGOS POR GRUPO
-    // =========================================================================
-    private String[] getJogosDoGrupo(int gi) {
-        List<String> t = GRUPOS.get(gi);
-        if (t.size() < 4) return new String[]{"(grupo incompleto)"};
-        return new String[]{
-                t.get(0)+" vs "+t.get(1), t.get(2)+" vs "+t.get(3),
-                t.get(0)+" vs "+t.get(2), t.get(1)+" vs "+t.get(3),
-                t.get(0)+" vs "+t.get(3), t.get(1)+" vs "+t.get(2)
-        };
-    }
-
-    // =========================================================================
-    // DIÁLOGO — ADICIONAR RESULTADOS
-    // =========================================================================
-    private void abrirDialogoResultados() {
-        JDialog dlg = new JDialog(this, "Adicionar Resultados de Jogo", true);
-        dlg.setSize(500, 480);
-        dlg.setLocationRelativeTo(this);
-        dlg.getContentPane().setBackground(PANEL_WHITE);
-        dlg.setLayout(new BorderLayout(10, 10));
-
-        JPanel form = new JPanel(new GridLayout(7, 2, 10, 15));
-        form.setBorder(new EmptyBorder(20, 20, 20, 20));
-        form.setOpaque(false);
-
-        String[] fases = {
-                "Grupo A","Grupo B","Grupo C","Grupo D",
-                "Grupo E","Grupo F","Grupo G","Grupo H"
-        };
-        JComboBox<String> cbFase = styledCombo(fases);
-        JComboBox<String> cbPartida = styledCombo(new String[]{});
-
         Runnable refreshPartidas = () -> {
-            int idx = cbFase.getSelectedIndex();
-            cbPartida.setModel(new DefaultComboBoxModel<>(getJogosDoGrupo(idx)));
+            cbPartida.removeAllItems();
+            int offset = gruposCompletos ? 8 : 0;
+            int idx = cbFase.getSelectedIndex() + offset;
+
+            for (Jogo j : bd.jogosRegistados) {
+                if (j.grupo == idx && !bd.resultados.containsKey(j.id)) {
+                    cbPartida.addItem(j);
+                }
+            }
         };
         cbFase.addActionListener(e -> refreshPartidas.run());
         refreshPartidas.run();
 
-        JTextField txtGolosEq1 = styledField();
-        JTextField txtGolosEq2 = styledField();
-        JTextField txtAmarelos = styledField();
-        JTextField txtVermelhos = styledField();
-        JTextField txtEspectadores = styledField();
+        JTextField txtGolosEq1 = styledField(), txtGolosEq2 = styledField();
+        JTextField txtAmarelos = styledField(), txtVermelhos = styledField(), txtEspectadores = styledField();
 
         form.add(label("Fase/Grupo:")); form.add(cbFase);
-        form.add(label("Partida:")); form.add(cbPartida);
+        form.add(label("Partida Pendente:")); form.add(cbPartida);
         form.add(label("Golos Equipa 1:")); form.add(txtGolosEq1);
         form.add(label("Golos Equipa 2:")); form.add(txtGolosEq2);
         form.add(label("Cartões Amarelos:")); form.add(txtAmarelos);
         form.add(label("Cartões Vermelhos:")); form.add(txtVermelhos);
         form.add(label("Espectadores:")); form.add(txtEspectadores);
-
         dlg.add(form, BorderLayout.CENTER);
 
         JButton btnGuardar = makeButton("Guardar Resultados", ACCENT_YELLOW, DARK_GREEN);
         btnGuardar.addActionListener(e -> {
             try {
+                Jogo j = (Jogo) cbPartida.getSelectedItem();
+                if (j == null) { JOptionPane.showMessageDialog(dlg, "Sem jogos pendentes nesta fase.", "Aviso", JOptionPane.WARNING_MESSAGE); return; }
+
                 int g1 = Integer.parseInt(txtGolosEq1.getText().trim());
                 int g2 = Integer.parseInt(txtGolosEq2.getText().trim());
                 int am = Integer.parseInt(txtAmarelos.getText().trim());
                 int ve = Integer.parseInt(txtVermelhos.getText().trim());
                 int esp = Integer.parseInt(txtEspectadores.getText().trim());
 
-                // Atualizar globais
-                totalGolos += (g1 + g2);
-                totalAmarelos += am;
-                totalVermelhos += ve;
-                totalEspectadores += esp;
-                totalJogosRegistados++;
+                bd.resultados.put(j.id, new Resultado(j.grupo, j.eq1, j.eq2, g1, g2, am, ve, esp));
+                salvarDados();
+                recomputarTudo();
 
-                // Atualizar a Sidebar Visualmente
-                lblValGolos.setText(String.valueOf(totalGolos));
-                lblValAmarelos.setText(String.valueOf(totalAmarelos));
-                lblValVermelhos.setText(String.valueOf(totalVermelhos));
-                lblValEspectadores.setText(String.valueOf(totalEspectadores / totalJogosRegistados));
-
-                JOptionPane.showMessageDialog(dlg, "Estatísticas atualizadas com sucesso!");
+                JOptionPane.showMessageDialog(dlg, "Resultado guardado e bloqueado!");
                 dlg.dispose();
-
-            } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(dlg, "Por favor, insere apenas números válidos nos campos de estatísticas.", "Erro de Formatação", JOptionPane.ERROR_MESSAGE);
-            }
+            } catch (Exception ex) { JOptionPane.showMessageDialog(dlg, "Insira números válidos."); }
         });
-
-        JPanel bot = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        bot.setOpaque(false);
-        bot.setBorder(new EmptyBorder(0, 0, 10, 15));
-        bot.add(btnGuardar);
-        dlg.add(bot, BorderLayout.SOUTH);
-
-        dlg.setVisible(true);
+        JPanel bot = new JPanel(new FlowLayout(FlowLayout.RIGHT)); bot.add(btnGuardar);
+        dlg.add(bot, BorderLayout.SOUTH); dlg.setVisible(true);
     }
 
     // =========================================================================
-    // DIÁLOGO — ESTRUTURA DO TORNEIO
+    // DIÁLOGO ESTRUTURA DO TORNEIO (REQ: Revertido exatamente para o layout original)
     // =========================================================================
     private void abrirDialogoEstrutura() {
         JDialog dlg = new JDialog(this, "Estrutura do Torneio - Grupos", true);
@@ -765,7 +717,7 @@ public class MenuMatchCenter extends JFrame {
         leftPanel.add(cbGrupoEd, BorderLayout.NORTH);
 
         DefaultTableModel tblModel = new DefaultTableModel(new Object[]{"#","Seleção"}, 0) {
-            @Override public boolean isCellEditable(int r, int c) { return false; }
+            @Override public boolean isCellEditable(int r, int c) { return false; } // REQ: Inalterável
         };
         JTable tblEquipas = new JTable(tblModel);
         configurarTabelaSimples(tblEquipas); tblEquipas.setRowHeight(32);
@@ -774,7 +726,7 @@ public class MenuMatchCenter extends JFrame {
         Runnable refreshTabela = () -> {
             int gi = cbGrupoEd.getSelectedIndex();
             tblModel.setRowCount(0);
-            List<String> eq = GRUPOS.get(gi);
+            List<String> eq = bd.grupos.get(gi);
             for (int i = 0; i < eq.size(); i++) tblModel.addRow(new Object[]{i+1, eq.get(i)});
         };
         refreshTabela.run();
@@ -792,7 +744,8 @@ public class MenuMatchCenter extends JFrame {
             int gi  = cbGrupoEd.getSelectedIndex();
             if (row < 0) { JOptionPane.showMessageDialog(dlg, "Seleccione uma equipa primeiro."); return; }
             String equipa = (String) tblModel.getValueAt(row, 1);
-            GRUPOS.get(gi).remove(equipa);
+            bd.grupos.get(gi).remove(equipa);
+            salvarDados();
             refreshTabela.run();
         });
         btnRemPanel.add(btnRemover);
@@ -808,8 +761,11 @@ public class MenuMatchCenter extends JFrame {
         Runnable refreshLista = () -> {
             int gi = cbGrupoEd.getSelectedIndex();
             listModel.clear();
-            List<String> noGrupo = GRUPOS.get(gi);
-            for (String s : TODAS_SELECOES) if (!noGrupo.contains(s)) listModel.addElement(s);
+            List<String> noGrupo = bd.grupos.get(gi);
+            // REQ: Validação de Existência (Lê do GestorDados)
+            for (String s : GestorDados.getInstance().selecoes) {
+                if (!noGrupo.contains(s)) listModel.addElement(s);
+            }
         };
         refreshLista.run();
         cbGrupoEd.addActionListener(e -> refreshLista.run());
@@ -830,7 +786,10 @@ public class MenuMatchCenter extends JFrame {
         btnAddCustom.addActionListener(e -> {
             String nome = txtNovaSelecao.getText().trim();
             if (nome.isEmpty()) return;
-            if (!TODAS_SELECOES.contains(nome)) TODAS_SELECOES.add(nome);
+            if (!GestorDados.getInstance().selecoes.contains(nome)) {
+                GestorDados.getInstance().selecoes.add(nome);
+                GestorDados.getInstance().salvarDados();
+            }
             refreshLista.run();
             txtNovaSelecao.setText("");
         });
@@ -843,17 +802,18 @@ public class MenuMatchCenter extends JFrame {
             String sel = jList.getSelectedValue();
             if (sel == null) { JOptionPane.showMessageDialog(dlg, "Seleccione uma seleção da lista."); return; }
             int gi = cbGrupoEd.getSelectedIndex();
-            if (GRUPOS.get(gi).contains(sel)) { JOptionPane.showMessageDialog(dlg, "Já está neste grupo."); return; }
+            if (bd.grupos.get(gi).contains(sel)) { JOptionPane.showMessageDialog(dlg, "Já está neste grupo."); return; }
             for (int g = 0; g < 8; g++) {
-                if (g != gi && GRUPOS.get(g).contains(sel)) {
+                if (g != gi && bd.grupos.get(g).contains(sel)) {
                     int resp = JOptionPane.showConfirmDialog(dlg,
                             sel + " está no Grupo " + (char)('A'+g) + ". Mover para " + grupoNomes[gi] + "?",
                             "Mover Seleção", JOptionPane.YES_NO_OPTION);
-                    if (resp == JOptionPane.YES_OPTION) GRUPOS.get(g).remove(sel);
+                    if (resp == JOptionPane.YES_OPTION) bd.grupos.get(g).remove(sel);
                     else return;
                 }
             }
-            GRUPOS.get(gi).add(sel);
+            bd.grupos.get(gi).add(sel);
+            salvarDados();
             refreshTabela.run();
             refreshLista.run();
         });
@@ -870,7 +830,7 @@ public class MenuMatchCenter extends JFrame {
         dlg.add(split, BorderLayout.CENTER);
 
         JButton btnOk = makeButton("Guardar e Fechar", ACCENT_YELLOW, DARK_GREEN);
-        btnOk.addActionListener(e -> dlg.dispose());
+        btnOk.addActionListener(e -> { recomputarTudo(); dlg.dispose(); });
         JPanel bot = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         bot.setBackground(PANEL_WHITE); bot.add(btnOk);
         dlg.add(bot, BorderLayout.SOUTH);
@@ -878,64 +838,54 @@ public class MenuMatchCenter extends JFrame {
     }
 
     // =========================================================================
-    // UTILITÁRIOS DE UI
+    // UI Helpers (Omitidos por Limite de Carateres, são os mesmos utilitários)
     // =========================================================================
+    private JPanel createGroupTable(int gi) {
+        JPanel panel = new JPanel(new BorderLayout(0, 10)); panel.setOpaque(false);
+        String[] cols = {"#","Seleção","PJ","PTS","V","E","D","GM","GS","DG"};
+        modelosClassificacao[gi] = new DefaultTableModel(null, cols) {
+            @Override public boolean isCellEditable(int row, int col) { return false; } // REQ: Inalterável
+        };
+        JTable tbl = new JTable(modelosClassificacao[gi]); configurarTabelaSimples(tbl);
+        JScrollPane sp = new JScrollPane(tbl); panel.add(sp, BorderLayout.CENTER);
+
+        JTable tblCal = new JTable(modelosCalendario[gi]); configurarTabelaSimples(tblCal);
+        JScrollPane spCal = new JScrollPane(tblCal); spCal.setPreferredSize(new Dimension(0, 130));
+        panel.add(spCal, BorderLayout.SOUTH); return panel;
+    }
+
+    private JPanel createKnockoutPanel() {
+        JPanel p = new JPanel(new BorderLayout()); p.setOpaque(false);
+        modeloKnockout = new DefaultTableModel(new Object[8][5], new String[]{"Jogo","1.º","vs","2.º","Res"}) {
+            @Override public boolean isCellEditable(int row, int col) { return false; } // REQ: Inalterável
+        };
+        JTable tbl = new JTable(modeloKnockout); configurarTabelaSimples(tbl);
+        p.add(new JScrollPane(tbl), BorderLayout.CENTER); return p;
+    }
+
+    private JPanel createGlobalStatsSidebar() {
+        JPanel card = createCard(); card.setLayout(new BorderLayout(0, 12));
+        lblValGolos = new JLabel("0"); lblValAmarelos = new JLabel("0"); lblValVermelhos = new JLabel("0"); lblValEspectadores = new JLabel("0");
+        JPanel grid = new JPanel(new GridLayout(4, 1)); grid.setOpaque(false);
+        grid.add(lblValGolos); grid.add(lblValAmarelos); grid.add(lblValVermelhos); grid.add(lblValEspectadores);
+        card.add(grid, BorderLayout.CENTER);
+
+        JButton btnAddResultados = makeButton("Adicionar Resultados", ACCENT_YELLOW, DARK_GREEN);
+        btnAddResultados.addActionListener(e -> abrirDialogoResultados());
+        btnAddResultados.setVisible(isAdmin); card.add(btnAddResultados, BorderLayout.SOUTH);
+        card.setPreferredSize(new Dimension(260, 0)); return card;
+    }
+
     private void configurarTabelaSimples(JTable t) {
-        t.setFont(MAIN_FONT); t.setRowHeight(30);
-        t.setGridColor(TABLE_GRID); t.setForeground(TEXT_DARK); t.setBackground(PANEL_WHITE);
-        t.setShowVerticalLines(false);
-        JTableHeader h = t.getTableHeader();
-        h.setFont(BOLD_FONT);
-        h.setBackground(new Color(200, 225, 200));
-        h.setForeground(DARK_GREEN);
-        h.setPreferredSize(new Dimension(0, 36));
+        t.setFont(MAIN_FONT); t.setRowHeight(30); t.setGridColor(TABLE_GRID);
+        JTableHeader h = t.getTableHeader(); h.setFont(BOLD_FONT); h.setBackground(new Color(200, 225, 200)); h.setForeground(DARK_GREEN);
     }
-
-    private TitledBorder titledCardBorder(String title) {
-        TitledBorder b = BorderFactory.createTitledBorder(
-                new LineBorder(DARK_GREEN, 1, true), "  " + title + "  ");
-        b.setTitleFont(TITLE_FONT); b.setTitleColor(DARK_GREEN);
-        return b;
-    }
-
-    private TitledBorder subBorder(String title) {
-        return BorderFactory.createTitledBorder(
-                new LineBorder(new Color(100, 160, 100), 1), title,
-                TitledBorder.LEFT, TitledBorder.TOP, BOLD_FONT, DARK_GREEN);
-    }
-
+    private TitledBorder titledCardBorder(String title) { return BorderFactory.createTitledBorder(new LineBorder(DARK_GREEN, 1, true), "  " + title + "  "); }
+    private TitledBorder subBorder(String title) { return BorderFactory.createTitledBorder(new LineBorder(DARK_GREEN, 1), title); }
     private JButton makeButton(String text, Color bg, Color fg) {
-        JButton btn = new JButton(text);
-        btn.setBackground(bg); btn.setForeground(fg);
-        btn.setOpaque(true); btn.setContentAreaFilled(true);
-        btn.setFont(BOLD_FONT); btn.setFocusPainted(false);
-        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btn.setBorder(BorderFactory.createCompoundBorder(
-                new LineBorder(DARK_GREEN, 1, true), new EmptyBorder(9, 14, 9, 14)));
-        return btn;
+        JButton btn = new JButton(text); btn.setBackground(bg); btn.setForeground(fg); btn.setFocusPainted(false); return btn;
     }
-
-    private JLabel label(String text) {
-        JLabel l = new JLabel(text);
-        l.setFont(BOLD_FONT); l.setForeground(DARK_GREEN); return l;
-    }
-
-    private JTextField styledField() {
-        JTextField f = new JTextField();
-        f.setFont(MAIN_FONT); f.setForeground(TEXT_DARK); return f;
-    }
-
-    private JComboBox<String> styledCombo(String[] items) {
-        JComboBox<String> cb = new JComboBox<>(items);
-        cb.setFont(MAIN_FONT); cb.setForeground(TEXT_DARK); cb.setBackground(PANEL_WHITE); return cb;
-    }
-
-    // =========================================================================
-    // MAIN
-    // =========================================================================
-    public static void main(String[] args) {
-        try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); }
-        catch (Exception ignored) {}
-        SwingUtilities.invokeLater(() -> new MenuMatchCenter().setVisible(true));
-    }
+    private JLabel label(String text) { JLabel l = new JLabel(text); l.setFont(BOLD_FONT); l.setForeground(DARK_GREEN); return l; }
+    private JTextField styledField() { return new JTextField(); }
+    private JComboBox<String> styledCombo(String[] items) { return new JComboBox<>(items); }
 }

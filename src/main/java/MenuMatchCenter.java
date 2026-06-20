@@ -69,17 +69,7 @@ public class MenuMatchCenter extends JFrame {
         List<String> equipasArbitragem = new ArrayList<>();
 
         public MatchCenterBD() {
-            String[][] defaults = {
-                    {"Brasil", "Croácia", "México", "Camarões"},
-                    {"Espanha", "Países Baixos", "Chile", "Austrália"},
-                    {"Colômbia", "Grécia", "Costa do Marfim", "Japão"},
-                    {"Uruguai", "Costa Rica", "Inglaterra", "Itália"},
-                    {"Suíça", "Equador", "França", "Honduras"},
-                    {"Argentina", "Bósnia e Herzegovina", "Irão", "Nigéria"},
-                    {"Alemanha", "Portugal", "Gana", "Estados Unidos"},
-                    {"Bélgica", "Argélia", "Rússia", "Coreia do Sul"}
-            };
-            for (String[] g : defaults) grupos.add(new ArrayList<>(Arrays.asList(g)));
+            for (int i = 0; i < 8; i++) grupos.add(new ArrayList<>());
         }
     }
 
@@ -346,7 +336,9 @@ public class MenuMatchCenter extends JFrame {
         JPanel wrapper = new JPanel(new BorderLayout(0, 0)); wrapper.setOpaque(false);
         JPanel titleBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 20, 14)); titleBar.setOpaque(false);
         JLabel lbl = new JLabel("MATCH CENTER"); lbl.setFont(new Font("Segoe UI", Font.BOLD, 26)); lbl.setForeground(DARK_GREEN);
-        titleBar.add(lbl); wrapper.add(titleBar, BorderLayout.NORTH);
+        JButton btnVoltar = buildBackButton();
+        btnVoltar.addActionListener(e -> dispatchEvent(new WindowEvent(this, WindowEvent.WINDOW_CLOSING)));
+        titleBar.add(btnVoltar); titleBar.add(lbl); wrapper.add(titleBar, BorderLayout.NORTH);
 
         JPanel nav = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 8)); nav.setOpaque(false);
         nav.setBorder(new EmptyBorder(0, 14, 6, 14));
@@ -376,6 +368,20 @@ public class MenuMatchCenter extends JFrame {
         };
         btn.setFont(NAV_FONT); btn.setForeground(Color.WHITE); btn.setOpaque(false); btn.setContentAreaFilled(false); btn.setBorderPainted(false); btn.setFocusPainted(false);
         btn.setPreferredSize(new Dimension(220, 44)); btn.setCursor(new Cursor(Cursor.HAND_CURSOR)); return btn;
+    }
+
+    private JButton buildBackButton() {
+        JButton btn = new JButton("← Voltar") {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create(); g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                if (getModel().isPressed()) g2.setColor(new Color(20, 70, 35, 240));
+                else if (getModel().isRollover()) g2.setColor(new Color(0, 100, 40, 200));
+                else g2.setColor(new Color(0, 80, 30, 140));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12); g2.dispose(); super.paintComponent(g);
+            }
+        };
+        btn.setFont(NAV_FONT); btn.setForeground(Color.WHITE); btn.setOpaque(false); btn.setContentAreaFilled(false); btn.setBorderPainted(false); btn.setFocusPainted(false);
+        btn.setPreferredSize(new Dimension(110, 40)); btn.setCursor(new Cursor(Cursor.HAND_CURSOR)); return btn;
     }
 
     private void selectSection(int idx) {

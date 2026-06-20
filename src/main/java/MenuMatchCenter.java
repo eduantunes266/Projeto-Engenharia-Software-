@@ -15,29 +15,40 @@ import java.util.List;
 
 public class MenuMatchCenter extends JFrame {
 
-    // --- Paleta de Cores ---
     private final Color DARK_GREEN    = new Color(20, 70, 35);
     private final Color MEDIUM_GREEN  = new Color(0, 110, 50);
     private final Color ACCENT_YELLOW = new Color(255, 204, 0);
     private final Color PANEL_WHITE   = Color.WHITE;
     private final Color TEXT_DARK     = new Color(30, 40, 30);
     private final Color TABLE_GRID    = new Color(210, 225, 210);
-    private final Color TABLE_ROW_ALT = new Color(242, 250, 242);
 
-    // --- Fontes ---
     private final Font MAIN_FONT  = new Font("Segoe UI", Font.PLAIN, 13);
     private final Font BOLD_FONT  = new Font("Segoe UI", Font.BOLD,  13);
     private final Font TITLE_FONT = new Font("Segoe UI", Font.BOLD,  15);
     private final Font NAV_FONT   = new Font("Segoe UI", Font.BOLD,  13);
 
-    // --- DADOS DO DOMÍNIO (Persistência) ---
     private MatchCenterBD bd;
     private final String BD_FILE = "matchcenter_dados.dat";
 
-    // MODELOS DE TABELAS
     private final DefaultTableModel[] modelosCalendario   = new DefaultTableModel[8];
     private final DefaultTableModel[] modelosClassificacao = new DefaultTableModel[8];
-    private DefaultTableModel modeloKnockout;
+
+    private final JTextField[] txtOitavos = new JTextField[16];
+    private final JTextField[] txtQuartos = new JTextField[8];
+    private final JTextField[] txtMeias   = new JTextField[4];
+    private final JTextField[] txtTerceiroLugar = new JTextField[2];
+    private final JTextField[] txtFinal   = new JTextField[2];
+    private final JTextField txtCampeao   = new JTextField();
+
+    {
+        for (int i = 0; i < 16; i++) txtOitavos[i] = new JTextField("A Definir");
+        for (int i = 0; i < 8; i++) txtQuartos[i] = new JTextField("A Definir");
+        for (int i = 0; i < 4; i++) txtMeias[i] = new JTextField("A Definir");
+        for (int i = 0; i < 2; i++) txtTerceiroLugar[i] = new JTextField("A Definir");
+        for (int i = 0; i < 2; i++) txtFinal[i] = new JTextField("A Definir");
+        txtCampeao.setText("A Definir");
+    }
+
     private DefaultTableModel modeloArbitros;
     private DefaultTableModel modeloAlocacoes;
 
@@ -48,9 +59,6 @@ public class MenuMatchCenter extends JFrame {
     private int[] navTargets;
     private final boolean isAdmin;
 
-    // =========================================================================
-    // CLASSES DE DADOS (Serializable para guardar ficheiro binário)
-    // =========================================================================
     public static class MatchCenterBD implements Serializable {
         private static final long serialVersionUID = 1L;
         List<List<String>> grupos = new ArrayList<>();
@@ -99,14 +107,12 @@ public class MenuMatchCenter extends JFrame {
         }
     }
 
-    // =========================================================================
-    // CONSTRUTOR E PERSISTÊNCIA
-    // =========================================================================
     public MenuMatchCenter() { this(true); }
 
     public MenuMatchCenter(boolean isAdmin) {
         this.isAdmin = isAdmin;
         carregarDados();
+        semearFaseGruposSeVazio();
         inicializarModelosCalendario();
 
         setTitle("FIFA World Cup Match Center" + (isAdmin ? "" : "  —  Modo Consulta (Adepto)"));
@@ -147,11 +153,35 @@ public class MenuMatchCenter extends JFrame {
         } catch (IOException e) { e.printStackTrace(); }
     }
 
+    private void semearFaseGruposSeVazio() {
+        if (!bd.jogosRegistados.isEmpty()) return;
+        String[] estadiosPreDefinidos = {"Maracanã", "Arena Corinthians", "Mineirão", "Castelão"};
+        Random rnd = new Random();
+        for (int gi = 0; gi < 8; gi++) {
+            List<String> equipas = bd.grupos.get(gi);
+            if (equipas.size() < 4) continue;
+            String[][] confrontos = {
+                    {equipas.get(0), equipas.get(1)}, {equipas.get(2), equipas.get(3)},
+                    {equipas.get(0), equipas.get(2)}, {equipas.get(1), equipas.get(3)},
+                    {equipas.get(0), equipas.get(3)}, {equipas.get(1), equipas.get(2)}
+            };
+            int dia = 10;
+            for (String[] conf : confrontos) {
+                Jogo j = new Jogo(gi, conf[0], conf[1], String.format("%02d/06/2026", dia++), "16:00", estadiosPreDefinidos[rnd.nextInt(estadiosPreDefinidos.length)]);
+                bd.jogosRegistados.add(j);
+                int g1 = rnd.nextInt(4); int g2 = rnd.nextInt(4);
+                if (g1 == g2 && rnd.nextBoolean()) g1++;
+                bd.resultados.put(j.id, new Resultado(gi, conf[0], conf[1], g1, g2, rnd.nextInt(4), 0, 45000 + rnd.nextInt(15000)));
+            }
+        }
+        salvarDados();
+    }
+
     private void inicializarModelosCalendario() {
         String[] calCols = {"Partida", "Data", "Hora", "Estádio"};
         for (int i = 0; i < 8; i++) {
             modelosCalendario[i] = new DefaultTableModel(calCols, 0) {
-                @Override public boolean isCellEditable(int r, int c) { return false; } // REQ: Inalterável
+                @Override public boolean isCellEditable(int r, int c) { return false; }
             };
         }
     }
@@ -164,9 +194,6 @@ public class MenuMatchCenter extends JFrame {
         }
     }
 
-    // =========================================================================
-    // RECÁLCULO AUTOMÁTICO
-    // =========================================================================
     private void recomputarTudo() {
         recomputarClassificacoes();
         recomputarEstatisticas();
@@ -222,25 +249,99 @@ public class MenuMatchCenter extends JFrame {
         if (lblValEspectadores != null) lblValEspectadores.setText(n > 0 ? String.valueOf(esp / n) : "0");
     }
 
-    private void atualizarMataMata() {
-        if (modeloKnockout == null) return;
-        int[] grpPrim = {2, 0, 1, 3, 4, 6, 5, 7};
-        int[] grpSeg  = {3, 1, 0, 2, 5, 7, 4, 6};
-        for (int r = 0; r < modeloKnockout.getRowCount() && r < 8; r++) {
-            modeloKnockout.setValueAt(posDoGrupo(grpPrim[r], 0), r, 1);
-            modeloKnockout.setValueAt(posDoGrupo(grpSeg[r], 1),  r, 3);
-        }
-    }
-
     private String posDoGrupo(int gi, int pos) {
         DefaultTableModel m = modelosClassificacao[gi];
         if (m != null && m.getRowCount() > pos) return String.valueOf(m.getValueAt(pos, 1));
         return (pos == 0 ? "1.º " : "2.º ") + (char) ('A' + gi);
     }
 
-    // =========================================================================
-    // BARRA DE TÍTULO + NAVEGAÇÃO HORIZONTAL E FUNDO
-    // =========================================================================
+    private void atualizarMataMata() {
+        if (txtOitavos[0] == null) return;
+
+        txtOitavos[0].setText(posDoGrupo(0, 0)); txtOitavos[1].setText(posDoGrupo(1, 1));
+        txtOitavos[2].setText(posDoGrupo(2, 0)); txtOitavos[3].setText(posDoGrupo(3, 1));
+        txtOitavos[4].setText(posDoGrupo(4, 0)); txtOitavos[5].setText(posDoGrupo(5, 1));
+        txtOitavos[6].setText(posDoGrupo(6, 0)); txtOitavos[7].setText(posDoGrupo(7, 1));
+
+        txtOitavos[8].setText(posDoGrupo(1, 0)); txtOitavos[9].setText(posDoGrupo(0, 1));
+        txtOitavos[10].setText(posDoGrupo(3, 0)); txtOitavos[11].setText(posDoGrupo(2, 1));
+        txtOitavos[12].setText(posDoGrupo(5, 0)); txtOitavos[13].setText(posDoGrupo(4, 1));
+        txtOitavos[14].setText(posDoGrupo(7, 0)); txtOitavos[15].setText(posDoGrupo(6, 1));
+
+        txtQuartos[0].setText(getVencedor(txtOitavos[0].getText(), txtOitavos[1].getText(), 8));
+        txtQuartos[1].setText(getVencedor(txtOitavos[2].getText(), txtOitavos[3].getText(), 8));
+        txtQuartos[2].setText(getVencedor(txtOitavos[4].getText(), txtOitavos[5].getText(), 8));
+        txtQuartos[3].setText(getVencedor(txtOitavos[6].getText(), txtOitavos[7].getText(), 8));
+        txtQuartos[4].setText(getVencedor(txtOitavos[8].getText(), txtOitavos[9].getText(), 8));
+        txtQuartos[5].setText(getVencedor(txtOitavos[10].getText(), txtOitavos[11].getText(), 8));
+        txtQuartos[6].setText(getVencedor(txtOitavos[12].getText(), txtOitavos[13].getText(), 8));
+        txtQuartos[7].setText(getVencedor(txtOitavos[14].getText(), txtOitavos[15].getText(), 8));
+
+        txtMeias[0].setText(getVencedor(txtQuartos[0].getText(), txtQuartos[1].getText(), 9));
+        txtMeias[1].setText(getVencedor(txtQuartos[2].getText(), txtQuartos[3].getText(), 9));
+        txtMeias[2].setText(getVencedor(txtQuartos[4].getText(), txtQuartos[5].getText(), 9));
+        txtMeias[3].setText(getVencedor(txtQuartos[6].getText(), txtQuartos[7].getText(), 9));
+
+        txtFinal[0].setText(getVencedor(txtMeias[0].getText(), txtMeias[1].getText(), 10));
+        txtFinal[1].setText(getVencedor(txtMeias[2].getText(), txtMeias[3].getText(), 10));
+
+        txtTerceiroLugar[0].setText(getDerrotado(txtMeias[0].getText(), txtMeias[1].getText(), 10));
+        txtTerceiroLugar[1].setText(getDerrotado(txtMeias[2].getText(), txtMeias[3].getText(), 10));
+
+        txtCampeao.setText(getVencedor(txtFinal[0].getText(), txtFinal[1].getText(), 12));
+    }
+
+    private String getVencedor(String t1, String t2, int fase) {
+        if (t1.isEmpty() || t2.isEmpty() || t1.contains("1.º") || t2.contains("2.º") || t1.equals("A Definir") || t2.equals("A Definir")) {
+            return "A Definir";
+        }
+        for (Resultado r : bd.resultados.values()) {
+            if (r.grupo == fase) {
+                if ((r.eq1.equals(t1) && r.eq2.equals(t2)) || (r.eq1.equals(t2) && r.eq2.equals(t1))) {
+                    return r.g1 > r.g2 ? r.eq1 : r.eq2;
+                }
+            }
+        }
+        return "A Definir";
+    }
+
+    private String getDerrotado(String t1, String t2, int fase) {
+        if (t1.isEmpty() || t2.isEmpty() || t1.contains("1.º") || t2.contains("2.º") || t1.equals("A Definir") || t2.equals("A Definir")) {
+            return "A Definir";
+        }
+        for (Resultado r : bd.resultados.values()) {
+            if (r.grupo == fase) {
+                if ((r.eq1.equals(t1) && r.eq2.equals(t2)) || (r.eq1.equals(t2) && r.eq2.equals(t1))) {
+                    return r.g1 < r.g2 ? r.eq1 : r.eq2;
+                }
+            }
+        }
+        return "A Definir";
+    }
+
+    private List<String> getEquipasElegiveis(int fase) {
+        if (fase < 8) return bd.grupos.get(fase);
+        List<String> elegiveis = new ArrayList<>();
+        JTextField[] source = null;
+
+        if (fase == 8) source = txtOitavos;
+        else if (fase == 9) source = txtQuartos;
+        else if (fase == 10) source = txtMeias;
+        else if (fase == 11) source = txtTerceiroLugar;
+        else if (fase == 12) source = txtFinal;
+
+        if (source != null) {
+            for (JTextField t : source) {
+                String txt = t.getText();
+                if (!txt.isEmpty() && !txt.contains("1.º") && !txt.contains("2.º") && !txt.equals("A Definir")) {
+                    if (!elegiveis.contains(txt)) elegiveis.add(txt);
+                }
+            }
+        }
+        if (elegiveis.isEmpty()) elegiveis.add("A Definir");
+        return elegiveis;
+    }
+
     private JPanel buildTitleAndNav() {
         JPanel wrapper = new JPanel(new BorderLayout(0, 0)); wrapper.setOpaque(false);
         JPanel titleBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 20, 14)); titleBar.setOpaque(false);
@@ -304,15 +405,13 @@ public class MenuMatchCenter extends JFrame {
         JPanel p = new JPanel() {
             @Override protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g; g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(new Color(235, 252, 235, 205)); g2.fillRoundRect(0, 0, getWidth(), getHeight(), 18, 18);
+                g2.setColor(new Color(236, 252, 236, 215)); g2.fillRoundRect(0, 0, getWidth(), getHeight(), 18, 18);
+                g2.setColor(new Color(255, 255, 255, 160)); g2.setStroke(new BasicStroke(1f)); g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 18, 18);
             }
         };
         p.setOpaque(false); return p;
     }
 
-    // =========================================================================
-    // SECÇÃO 1 — Torneio e Jogos
-    // =========================================================================
     private JPanel buildSection1() {
         JPanel outer = new JPanel(new BorderLayout(14, 0)); outer.setOpaque(false);
         JPanel card = createCard(); card.setLayout(new BorderLayout(10, 10));
@@ -333,7 +432,7 @@ public class MenuMatchCenter extends JFrame {
 
         JPanel colControls = new JPanel(new GridLayout(6, 1, 0, 10)); colControls.setOpaque(false);
 
-        String[] fases = { "Grupo A","Grupo B","Grupo C","Grupo D","Grupo E","Grupo F","Grupo G","Grupo H", "Oitavos","Quartos","Meia-Final","Final" };
+        String[] fases = { "Grupo A","Grupo B","Grupo C","Grupo D","Grupo E","Grupo F","Grupo G","Grupo H", "Oitavos","Quartos","Meia-Final","Terceiro Lugar","Final" };
         JComboBox<String> cbFase = styledCombo(fases);
 
         JComboBox<String> cbEq1 = styledCombo(new String[]{});
@@ -343,23 +442,33 @@ public class MenuMatchCenter extends JFrame {
 
         Runnable refreshEquipas = () -> {
             int idx = cbFase.getSelectedIndex();
+            Object sel1 = cbEq1.getSelectedItem();
+            Object sel2 = cbEq2.getSelectedItem();
             cbEq1.removeAllItems(); cbEq2.removeAllItems();
-            if (idx < 8) {
-                for (String t : bd.grupos.get(idx)) { cbEq1.addItem(t); cbEq2.addItem(t); }
-            } else {
+
+            List<String> elegiveis = getEquipasElegiveis(idx);
+            if (elegiveis.isEmpty() || elegiveis.contains("1.º A")) {
                 cbEq1.addItem("A Definir"); cbEq2.addItem("A Definir");
+            } else {
+                for (String t : elegiveis) { cbEq1.addItem(t); cbEq2.addItem(t); }
             }
+            if(sel1 != null) cbEq1.setSelectedItem(sel1);
+            if(sel2 != null) cbEq2.setSelectedItem(sel2);
         };
-        cbFase.addActionListener(e -> refreshEquipas.run()); refreshEquipas.run();
+        cbFase.addActionListener(e -> refreshEquipas.run());
+
+        cbEq1.addPopupMenuListener(new PopupMenuListener() {
+            @Override public void popupMenuWillBecomeVisible(PopupMenuEvent e) { refreshEquipas.run(); }
+            @Override public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {}
+            @Override public void popupMenuCanceled(PopupMenuEvent e) {}
+        });
 
         JTextField txtData = styledField(); txtData.setToolTipText("DD/MM/AAAA");
         JTextField txtHora = styledField(); txtHora.setToolTipText("HH:MM");
 
-        // REQ: Restrição e Atualização Dinâmica de Estádios do GestorDados
         JComboBox<String> cbEstadio = styledCombo(new String[0]);
-        // Preenche na inicialização
         for (String est : GestorDados.getInstance().estadios.keySet()) cbEstadio.addItem(est);
-        // Atualiza dinamicamente sempre que o menu abrir
+
         cbEstadio.addPopupMenuListener(new PopupMenuListener() {
             @Override public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
                 String selected = (String) cbEstadio.getSelectedItem();
@@ -386,23 +495,14 @@ public class MenuMatchCenter extends JFrame {
             if (eq1.equals(eq2) && !eq1.equals("A Definir")) {
                 JOptionPane.showMessageDialog(this, "Uma equipa não pode jogar contra si mesma.", "Atenção", JOptionPane.WARNING_MESSAGE); return;
             }
-            // Data: DD/MM/AAAA (ano >= 1930)
+
             if (!data.matches("^(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[0-2])/(19[3-9][0-9]|[2-9][0-9]{3})$")) {
-                JOptionPane.showMessageDialog(this,
-                        "Data inválida! Use DD/MM/AAAA e ano >= 1930.",
-                        "Erro Regex",
-                        JOptionPane.ERROR_MESSAGE);
-                return;
+                JOptionPane.showMessageDialog(this, "Data inválida! Use DD/MM/AAAA e ano >= 1930.", "Erro Regex", JOptionPane.ERROR_MESSAGE); return;
+            }
+            if (!hora.matches("^([01][0-9]|2[0-3]):[0-5][0-9]$")) {
+                JOptionPane.showMessageDialog(this, "Hora inválida! Use HH:MM.", "Erro Regex", JOptionPane.ERROR_MESSAGE); return;
             }
 
-// Hora: HH:MM (00:00 até 23:59)
-            if (!hora.matches("^([01][0-9]|2[0-3]):[0-5][0-9]$")) {
-                JOptionPane.showMessageDialog(this,
-                        "Hora inválida! Use HH:MM.",
-                        "Erro Regex",
-                        JOptionPane.ERROR_MESSAGE);
-                return;
-            }
             if (idxFase < 8) {
                 boolean jaJogaram = bd.jogosRegistados.stream().anyMatch(j ->
                         (j.eq1.equals(eq1) && j.eq2.equals(eq2)) || (j.eq1.equals(eq2) && j.eq2.equals(eq1))
@@ -414,10 +514,39 @@ public class MenuMatchCenter extends JFrame {
                 if (contEq1 >= 3 || contEq2 >= 3) {
                     JOptionPane.showMessageDialog(this, "Pelo menos uma destas equipas já atingiu o limite de 3 jogos na fase de grupos.", "Limite Atingido", JOptionPane.WARNING_MESSAGE); return;
                 }
+            } else {
+                boolean matchupValid = false;
+                JTextField[] source = null;
+                if (idxFase == 8) source = txtOitavos;
+                else if (idxFase == 9) source = txtQuartos;
+                else if (idxFase == 10) source = txtMeias;
+                else if (idxFase == 11) source = txtTerceiroLugar;
+                else if (idxFase == 12) source = txtFinal;
+
+                if (source != null && !eq1.equals("A Definir")) {
+                    for (int i = 0; i < source.length; i += 2) {
+                        String t1 = source[i].getText();
+                        String t2 = source[i+1].getText();
+                        if ((t1.equals(eq1) && t2.equals(eq2)) || (t1.equals(eq2) && t2.equals(eq1))) {
+                            matchupValid = true;
+                            break;
+                        }
+                    }
+                    if (!matchupValid) {
+                        JOptionPane.showMessageDialog(this, "ERRO DE REGISTO: O confronto selecionado (" + eq1 + " vs " + eq2 + ") não existe como uma partida válida e pendente no esquema da fase a eliminar.\nPor favor, verifique a árvore do 'Caminho para a Final'.", "Confronto Inexistente", JOptionPane.ERROR_MESSAGE);
+                        return;
+                    }
+                }
+
+                boolean jaJogouFase = bd.jogosRegistados.stream().anyMatch(j ->
+                        j.grupo == idxFase && (j.eq1.equals(eq1) || j.eq2.equals(eq1) || j.eq1.equals(eq2) || j.eq2.equals(eq2))
+                );
+                if (jaJogouFase && !eq1.equals("A Definir")) {
+                    JOptionPane.showMessageDialog(this, "Uma das equipas já está registada num jogo desta eliminatória.", "Atenção", JOptionPane.WARNING_MESSAGE); return;
+                }
             }
 
-            int grupoIdx = (idxFase < 8) ? idxFase : -1;
-            Jogo novoJogo = new Jogo(grupoIdx, eq1, eq2, data, hora, estadio);
+            Jogo novoJogo = new Jogo(idxFase, eq1, eq2, data, hora, estadio);
             bd.jogosRegistados.add(novoJogo);
             salvarDados();
 
@@ -439,9 +568,6 @@ public class MenuMatchCenter extends JFrame {
         outer.add(card, BorderLayout.CENTER); return outer;
     }
 
-    // =========================================================================
-    // SECÇÃO 2 — Arbitragem (REQ: Remoção, Quarto Árbitro, Validação Existência)
-    // =========================================================================
     private JPanel buildSection2() {
         JPanel outer = new JPanel(new BorderLayout(0, 0)); outer.setOpaque(false);
         JPanel card = createCard(); card.setLayout(new BorderLayout(10, 14));
@@ -454,11 +580,8 @@ public class MenuMatchCenter extends JFrame {
         pnlReg.setBorder(subBorder("Registar Novo Árbitro"));
 
         JTextField txtNome = styledField();
-
-        // REQ: Substituição de funções (VAR removido, Quarto Árbitro inserido)
         JComboBox<String> cbFuncao = styledCombo(new String[]{"Árbitro Principal","Assistente 1","Assistente 2","Quarto Árbitro"});
 
-        // REQ: Validação de Existência (Só lê países reais criados no GestorDados)
         JComboBox<String> cbPaisNascenca = styledCombo(GestorDados.getInstance().selecoes.toArray(new String[0]));
         cbPaisNascenca.addPopupMenuListener(new PopupMenuListener() {
             @Override public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
@@ -476,6 +599,7 @@ public class MenuMatchCenter extends JFrame {
 
         JComboBox<String> cbEquipa = new JComboBox<>(modelEquipas);
         cbEquipa.setFont(MAIN_FONT); cbEquipa.setBackground(PANEL_WHITE);
+        cbEquipa.setBorder(new LineBorder(new Color(180, 200, 180), 1, true)); cbEquipa.setCursor(new Cursor(Cursor.HAND_CURSOR));
 
         JButton btnNova = makeButton("+", ACCENT_YELLOW, DARK_GREEN);
         btnNova.addActionListener(e -> {
@@ -496,21 +620,21 @@ public class MenuMatchCenter extends JFrame {
             String func = (String) cbFuncao.getSelectedItem();
             String equipa = (String) cbEquipa.getSelectedItem();
             if (nome.isEmpty() || equipa == null) { JOptionPane.showMessageDialog(this, "Indique nome e crie uma equipa."); return; }
+
+            long contaFuncao = bd.arbitros.stream().filter(a -> a.equipa.equals(equipa) && a.funcao.equals(func)).count();
+            if(contaFuncao > 0) { JOptionPane.showMessageDialog(this, "A equipa '" + equipa + "' já tem um " + func + " registado."); return; }
+
             Arbitro a = new Arbitro(nome, func, pais, equipa);
             bd.arbitros.add(a); salvarDados();
             modeloArbitros.addRow(new Object[]{nome, func, pais, equipa});
             txtNome.setText("");
         });
 
-        // REQ: Funcionalidade para remover um árbitro já registado
-        JButton btnRemoverArb = makeButton("Remover Selecionado", new Color(180, 30, 30), Color.WHITE);
-
         pnlReg.add(label("Nome:")); pnlReg.add(txtNome);
         pnlReg.add(label("Função / País Nasc.:")); pnlReg.add(pnlFN);
         pnlReg.add(label("Equipa:")); pnlReg.add(pnlEqWrap);
-        pnlReg.add(btnRemoverArb); pnlReg.add(btnRegArb);
+        pnlReg.add(new JLabel()); pnlReg.add(btnRegArb);
 
-        // ---------- Alocar Equipa a Jogo ----------
         JPanel pnlAlocar = new JPanel(new GridLayout(4, 2, 8, 8)); pnlAlocar.setOpaque(false);
         pnlAlocar.setBorder(subBorder("Alocar Equipa a Jogo"));
 
@@ -524,8 +648,20 @@ public class MenuMatchCenter extends JFrame {
             }
         });
 
+        cbJogo.addPopupMenuListener(new PopupMenuListener() {
+            @Override public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
+                Object selected = cbJogo.getSelectedItem();
+                cbJogo.removeAllItems();
+                for(Jogo j : bd.jogosRegistados) cbJogo.addItem(j);
+                if (selected != null) cbJogo.setSelectedItem(selected);
+            }
+            @Override public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {}
+            @Override public void popupMenuCanceled(PopupMenuEvent e) {}
+        });
+
         JComboBox<String> cbEqAloc = new JComboBox<>(modelEquipas);
         cbEqAloc.setFont(MAIN_FONT); cbEqAloc.setBackground(PANEL_WHITE);
+        cbEqAloc.setBorder(new LineBorder(new Color(180, 200, 180), 1, true)); cbEqAloc.setCursor(new Cursor(Cursor.HAND_CURSOR));
 
         JButton btnAlocar = makeButton("Alocar Equipa", ACCENT_YELLOW, DARK_GREEN);
         btnAlocar.addActionListener(e -> {
@@ -533,24 +669,38 @@ public class MenuMatchCenter extends JFrame {
             String equipa = (String) cbEqAloc.getSelectedItem();
             if (j == null || equipa == null) return;
 
-            // REQ: Um jogo só pode ter UMA equipa de arbitragem alocada
             if (bd.alocacoes.containsKey(j.id)) {
                 JOptionPane.showMessageDialog(this, "ERRO: Este jogo já possui uma equipa de arbitragem alocada!", "Alocação Única", JOptionPane.ERROR_MESSAGE);
                 return;
             }
 
-            // REQ: Elegibilidade Rígida (1 Principal, 2 Assistentes, 1 Quarto Árbitro)
+            for (Map.Entry<String, String> aloc : bd.alocacoes.entrySet()) {
+                if (aloc.getValue().equals(equipa)) {
+                    Jogo jogoExistente = bd.jogosRegistados.stream()
+                            .filter(x -> x.id.equals(aloc.getKey()))
+                            .findFirst().orElse(null);
+                    if (jogoExistente != null && jogoExistente.data.equals(j.data)) {
+                        JOptionPane.showMessageDialog(this,
+                                "BLOQUEADO — Gestão de Disponibilidade!\nA equipa " + equipa +
+                                        " já está alocada ao jogo \"" + jogoExistente.getPartida() +
+                                        "\" no dia " + j.data + ".\nNão é permitido arbitrar mais do que uma partida por dia.",
+                                "Sem Descanso", JOptionPane.ERROR_MESSAGE);
+                        return;
+                    }
+                }
+            }
+
             long p = bd.arbitros.stream().filter(a -> a.equipa.equals(equipa) && a.funcao.equals("Árbitro Principal")).count();
             long a1 = bd.arbitros.stream().filter(a -> a.equipa.equals(equipa) && a.funcao.equals("Assistente 1")).count();
             long a2 = bd.arbitros.stream().filter(a -> a.equipa.equals(equipa) && a.funcao.equals("Assistente 2")).count();
             long q = bd.arbitros.stream().filter(a -> a.equipa.equals(equipa) && a.funcao.equals("Quarto Árbitro")).count();
+            long totalElementos = bd.arbitros.stream().filter(a -> a.equipa.equals(equipa)).count();
 
-            if (p != 1 || a1 != 1 || a2 != 1 || q != 1 || (p + a1 + a2 + q) != 4) {
-                JOptionPane.showMessageDialog(this, "ERRO: A equipa de arbitragem é inelegível!\nRequisito: Exatamente 1 Principal, 2 Assistentes e 1 Quarto Árbitro.", "Inelegível", JOptionPane.ERROR_MESSAGE);
+            if (totalElementos != 4 || p != 1 || a1 != 1 || a2 != 1 || q != 1) {
+                JOptionPane.showMessageDialog(this, "ERRO: A equipa de arbitragem é inelegível!\nA equipa tem de ser formada por exatos 4 membros, cada um com uma função única.", "Inelegível", JOptionPane.ERROR_MESSAGE);
                 return;
             }
 
-            // REQ: Neutralidade
             for (Arbitro ar : bd.arbitros) {
                 if (ar.equipa.equals(equipa)) {
                     if (ar.paisNascenca.equalsIgnoreCase(j.eq1) || ar.paisNascenca.equalsIgnoreCase(j.eq2)) {
@@ -567,18 +717,20 @@ public class MenuMatchCenter extends JFrame {
 
         pnlAlocar.add(label("Partida:")); pnlAlocar.add(cbJogo);
         pnlAlocar.add(label("Equipa Arbitragem:")); pnlAlocar.add(cbEqAloc);
+        pnlAlocar.add(new JLabel()); pnlAlocar.add(new JLabel());
         pnlAlocar.add(new JLabel()); pnlAlocar.add(btnAlocar);
 
         JPanel forms = new JPanel(new GridLayout(1, 2, 14, 0)); forms.setOpaque(false);
         forms.add(pnlReg); forms.add(pnlAlocar);
 
         modeloArbitros = new DefaultTableModel(new Object[]{"Nome","Função","País Nascença","Equipa"}, 0) {
-            @Override public boolean isCellEditable(int row, int col) { return false; } // REQ: Inalterável
+            @Override public boolean isCellEditable(int row, int col) { return false; }
         };
         for(Arbitro a : bd.arbitros) modeloArbitros.addRow(new Object[]{a.nome, a.funcao, a.paisNascenca, a.equipa});
         JTable tblArb = new JTable(modeloArbitros); configurarTabelaSimples(tblArb);
         JScrollPane spArb = new JScrollPane(tblArb); spArb.setBorder(subBorder("Árbitros Registados"));
 
+        JButton btnRemoverArb = makeButton("Remover Árbitro", new Color(180, 30, 30), Color.WHITE);
         btnRemoverArb.addActionListener(e -> {
             int row = tblArb.getSelectedRow();
             if (row < 0) { JOptionPane.showMessageDialog(this, "Selecione um árbitro na tabela para remover."); return; }
@@ -588,9 +740,11 @@ public class MenuMatchCenter extends JFrame {
             salvarDados();
             JOptionPane.showMessageDialog(this, "Árbitro removido com sucesso!");
         });
+        JPanel pnlArbWrap = new JPanel(new BorderLayout()); pnlArbWrap.setOpaque(false);
+        pnlArbWrap.add(spArb, BorderLayout.CENTER); pnlArbWrap.add(btnRemoverArb, BorderLayout.SOUTH);
 
         modeloAlocacoes = new DefaultTableModel(new Object[]{"Partida","Equipa de Arbitragem","Data"}, 0) {
-            @Override public boolean isCellEditable(int row, int col) { return false; } // REQ: Inalterável
+            @Override public boolean isCellEditable(int row, int col) { return false; }
         };
         for(Map.Entry<String, String> entry : bd.alocacoes.entrySet()) {
             Jogo jo = bd.jogosRegistados.stream().filter(x -> x.id.equals(entry.getKey())).findFirst().orElse(null);
@@ -599,16 +753,32 @@ public class MenuMatchCenter extends JFrame {
         JTable tblAlo = new JTable(modeloAlocacoes); configurarTabelaSimples(tblAlo);
         JScrollPane spAlo = new JScrollPane(tblAlo); spAlo.setBorder(subBorder("Alocações"));
 
+        JButton btnRemoverAloc = makeButton("Remover Alocação", new Color(180, 30, 30), Color.WHITE);
+        btnRemoverAloc.addActionListener(e -> {
+            int row = tblAlo.getSelectedRow();
+            if (row < 0) { JOptionPane.showMessageDialog(this, "Selecione uma alocação na tabela."); return; }
+            String partidaStr = (String) tblAlo.getValueAt(row, 0);
+            String jogoId = null;
+            for (Jogo jo : bd.jogosRegistados) {
+                if (jo.getPartida().equals(partidaStr)) { jogoId = jo.id; break; }
+            }
+            if (jogoId != null) {
+                bd.alocacoes.remove(jogoId);
+                modeloAlocacoes.removeRow(row);
+                salvarDados();
+                JOptionPane.showMessageDialog(this, "Alocação removida do jogo!");
+            }
+        });
+        JPanel pnlAloWrap = new JPanel(new BorderLayout()); pnlAloWrap.setOpaque(false);
+        pnlAloWrap.add(spAlo, BorderLayout.CENTER); pnlAloWrap.add(btnRemoverAloc, BorderLayout.SOUTH);
+
         JPanel tabelas = new JPanel(new GridLayout(1, 2, 14, 0)); tabelas.setOpaque(false);
-        tabelas.add(spArb); tabelas.add(spAlo);
+        tabelas.add(pnlArbWrap); tabelas.add(pnlAloWrap);
 
         card.add(forms, BorderLayout.NORTH); card.add(tabelas, BorderLayout.CENTER);
         outer.add(card, BorderLayout.CENTER); return outer;
     }
 
-    // =========================================================================
-    // SECÇÃO 3 E DIÁLOGO RESULTADOS
-    // =========================================================================
     private JPanel buildSection3() {
         JPanel outer = new JPanel(new BorderLayout(14, 0)); outer.setOpaque(false);
         JPanel centerCard = createCard(); centerCard.setLayout(new BorderLayout());
@@ -617,7 +787,9 @@ public class MenuMatchCenter extends JFrame {
         JTabbedPane tabs = new JTabbedPane(JTabbedPane.TOP, JTabbedPane.WRAP_TAB_LAYOUT);
         tabs.setFont(BOLD_FONT); tabs.setForeground(DARK_GREEN); tabs.setOpaque(false);
         for (int i = 0; i < 8; i++) tabs.addTab("  Grupo " + (char)('A' + i) + "  ", createGroupTable(i));
-        tabs.addTab("  Oitavos  ", createKnockoutPanel());
+
+        tabs.addTab("  Caminho para a Final  ", createKnockoutPanel());
+
         centerCard.add(tabs, BorderLayout.CENTER);
 
         sidebarPanel = createGlobalStatsSidebar();
@@ -627,18 +799,29 @@ public class MenuMatchCenter extends JFrame {
 
     private void abrirDialogoResultados() {
         JDialog dlg = new JDialog(this, "Adicionar Resultados de Jogo", true);
-        dlg.setSize(500, 480); dlg.setLocationRelativeTo(this); dlg.setLayout(new BorderLayout(10, 10));
+        dlg.setSize(500, 500);
+        dlg.setLocationRelativeTo(this);
+        dlg.setLayout(new BorderLayout(10, 10));
 
-        JPanel form = new JPanel(new GridLayout(7, 2, 10, 15)); form.setBorder(new EmptyBorder(20, 20, 20, 20));
+        JLabel lblAvisoArbitragem = new JLabel(" ");
+        lblAvisoArbitragem.setForeground(new Color(180, 30, 30));
+        lblAvisoArbitragem.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        lblAvisoArbitragem.setHorizontalAlignment(SwingConstants.CENTER);
+        lblAvisoArbitragem.setBorder(new EmptyBorder(10, 0, 0, 0));
+        dlg.add(lblAvisoArbitragem, BorderLayout.NORTH);
+
+        JPanel form = new JPanel(new GridLayout(7, 2, 10, 15));
+        form.setBorder(new EmptyBorder(10, 20, 20, 20));
 
         long jogosGruposFeitos = bd.resultados.values().stream().filter(r -> r.grupo >= 0 && r.grupo < 8).count();
         boolean gruposCompletos = (jogosGruposFeitos >= 48);
 
-        String[] fases = gruposCompletos ?
-                new String[]{"Oitavos", "Quartos", "Meia-Final", "Final"} :
-                new String[]{"Grupo A","Grupo B","Grupo C","Grupo D","Grupo E","Grupo F","Grupo G","Grupo H"};
+        String[] todasAsFases = {
+                "Grupo A","Grupo B","Grupo C","Grupo D","Grupo E","Grupo F","Grupo G","Grupo H",
+                "Oitavos-de-Final", "Quartos-de-Final", "Meias-Finais", "Terceiro Lugar", "Final"
+        };
 
-        JComboBox<String> cbFase = styledCombo(fases);
+        JComboBox<String> cbFase = styledCombo(todasAsFases);
         JComboBox<Jogo> cbPartida = new JComboBox<>();
         cbPartida.setRenderer(new DefaultListCellRenderer() {
             @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
@@ -648,22 +831,63 @@ public class MenuMatchCenter extends JFrame {
             }
         });
 
+        JTextField txtGolosEq1 = styledField(), txtGolosEq2 = styledField();
+        JTextField txtAmarelos = styledField(), txtVermelhos = styledField(), txtEspectadores = styledField();
+        JButton btnGuardar = makeButton("Guardar Resultados", ACCENT_YELLOW, DARK_GREEN);
+
         Runnable refreshPartidas = () -> {
             cbPartida.removeAllItems();
-            int offset = gruposCompletos ? 8 : 0;
-            int idx = cbFase.getSelectedIndex() + offset;
+            int idxFaseSelecionada = cbFase.getSelectedIndex();
 
             for (Jogo j : bd.jogosRegistados) {
-                if (j.grupo == idx && !bd.resultados.containsKey(j.id)) {
+                if (j.grupo == idxFaseSelecionada && !bd.resultados.containsKey(j.id)) {
+                    if (idxFaseSelecionada >= 8 && (j.eq1.contains("Definir") || j.eq2.contains("Definir"))) {
+                        continue;
+                    }
                     cbPartida.addItem(j);
                 }
             }
-        };
-        cbFase.addActionListener(e -> refreshPartidas.run());
-        refreshPartidas.run();
 
-        JTextField txtGolosEq1 = styledField(), txtGolosEq2 = styledField();
-        JTextField txtAmarelos = styledField(), txtVermelhos = styledField(), txtEspectadores = styledField();
+            Jogo jFirst = (Jogo) cbPartida.getSelectedItem();
+            boolean temArbitro = (jFirst != null && bd.alocacoes.containsKey(jFirst.id));
+
+            txtGolosEq1.setEnabled(temArbitro); txtGolosEq2.setEnabled(temArbitro);
+            txtAmarelos.setEnabled(temArbitro); txtVermelhos.setEnabled(temArbitro); txtEspectadores.setEnabled(temArbitro);
+            btnGuardar.setEnabled(temArbitro);
+
+            if (!temArbitro && jFirst != null) {
+                txtGolosEq1.setText(""); txtGolosEq2.setText("");
+                txtAmarelos.setText(""); txtVermelhos.setText(""); txtEspectadores.setText("");
+                lblAvisoArbitragem.setText("⚠️ Ação bloqueada: Partida sem equipa de arbitragem atribuída.");
+            } else if (jFirst == null) {
+                lblAvisoArbitragem.setText(" ");
+            } else {
+                lblAvisoArbitragem.setText(" ");
+            }
+        };
+
+        cbFase.addActionListener(e -> refreshPartidas.run());
+
+        cbPartida.addActionListener(e -> {
+            Jogo j = (Jogo) cbPartida.getSelectedItem();
+            if (j != null) {
+                boolean temArbitro = bd.alocacoes.containsKey(j.id);
+
+                txtGolosEq1.setEnabled(temArbitro); txtGolosEq2.setEnabled(temArbitro);
+                txtAmarelos.setEnabled(temArbitro); txtVermelhos.setEnabled(temArbitro); txtEspectadores.setEnabled(temArbitro);
+                btnGuardar.setEnabled(temArbitro);
+
+                if (!temArbitro) {
+                    txtGolosEq1.setText(""); txtGolosEq2.setText("");
+                    txtAmarelos.setText(""); txtVermelhos.setText(""); txtEspectadores.setText("");
+                    lblAvisoArbitragem.setText("⚠️ Ação bloqueada: Partida sem equipa de arbitragem atribuída.");
+                } else {
+                    lblAvisoArbitragem.setText(" ");
+                }
+            }
+        });
+
+        refreshPartidas.run();
 
         form.add(label("Fase/Grupo:")); form.add(cbFase);
         form.add(label("Partida Pendente:")); form.add(cbPartida);
@@ -674,11 +898,12 @@ public class MenuMatchCenter extends JFrame {
         form.add(label("Espectadores:")); form.add(txtEspectadores);
         dlg.add(form, BorderLayout.CENTER);
 
-        JButton btnGuardar = makeButton("Guardar Resultados", ACCENT_YELLOW, DARK_GREEN);
         btnGuardar.addActionListener(e -> {
             try {
                 Jogo j = (Jogo) cbPartida.getSelectedItem();
                 if (j == null) { JOptionPane.showMessageDialog(dlg, "Sem jogos pendentes nesta fase.", "Aviso", JOptionPane.WARNING_MESSAGE); return; }
+
+                if (!bd.alocacoes.containsKey(j.id)) return;
 
                 int g1 = Integer.parseInt(txtGolosEq1.getText().trim());
                 int g2 = Integer.parseInt(txtGolosEq2.getText().trim());
@@ -686,21 +911,23 @@ public class MenuMatchCenter extends JFrame {
                 int ve = Integer.parseInt(txtVermelhos.getText().trim());
                 int esp = Integer.parseInt(txtEspectadores.getText().trim());
 
+                if (j.grupo >= 8 && g1 == g2) {
+                    JOptionPane.showMessageDialog(dlg, "ERRO: Jogos da fase eliminatória não podem terminar empatados.\nPor favor, insira o resultado final apurado (ex: após penáltis ou prolongamento).", "Empate Inválido", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+
                 bd.resultados.put(j.id, new Resultado(j.grupo, j.eq1, j.eq2, g1, g2, am, ve, esp));
                 salvarDados();
                 recomputarTudo();
 
-                JOptionPane.showMessageDialog(dlg, "Resultado guardado e bloqueado!");
+                JOptionPane.showMessageDialog(dlg, "Resultado guardado e jogo bloqueado!\nO vencedor avançou na árvore do torneio.");
                 dlg.dispose();
-            } catch (Exception ex) { JOptionPane.showMessageDialog(dlg, "Insira números válidos."); }
+            } catch (Exception ex) { JOptionPane.showMessageDialog(dlg, "Insira números válidos nos campos.", "Erro de input", JOptionPane.ERROR_MESSAGE); }
         });
         JPanel bot = new JPanel(new FlowLayout(FlowLayout.RIGHT)); bot.add(btnGuardar);
         dlg.add(bot, BorderLayout.SOUTH); dlg.setVisible(true);
     }
 
-    // =========================================================================
-    // DIÁLOGO ESTRUTURA DO TORNEIO (REQ: Revertido exatamente para o layout original)
-    // =========================================================================
     private void abrirDialogoEstrutura() {
         JDialog dlg = new JDialog(this, "Estrutura do Torneio - Grupos", true);
         dlg.setSize(900, 600);
@@ -717,7 +944,7 @@ public class MenuMatchCenter extends JFrame {
         leftPanel.add(cbGrupoEd, BorderLayout.NORTH);
 
         DefaultTableModel tblModel = new DefaultTableModel(new Object[]{"#","Seleção"}, 0) {
-            @Override public boolean isCellEditable(int r, int c) { return false; } // REQ: Inalterável
+            @Override public boolean isCellEditable(int r, int c) { return false; }
         };
         JTable tblEquipas = new JTable(tblModel);
         configurarTabelaSimples(tblEquipas); tblEquipas.setRowHeight(32);
@@ -762,7 +989,6 @@ public class MenuMatchCenter extends JFrame {
             int gi = cbGrupoEd.getSelectedIndex();
             listModel.clear();
             List<String> noGrupo = bd.grupos.get(gi);
-            // REQ: Validação de Existência (Lê do GestorDados)
             for (String s : GestorDados.getInstance().selecoes) {
                 if (!noGrupo.contains(s)) listModel.addElement(s);
             }
@@ -837,14 +1063,11 @@ public class MenuMatchCenter extends JFrame {
         dlg.setVisible(true);
     }
 
-    // =========================================================================
-    // UI Helpers (Omitidos por Limite de Carateres, são os mesmos utilitários)
-    // =========================================================================
     private JPanel createGroupTable(int gi) {
         JPanel panel = new JPanel(new BorderLayout(0, 10)); panel.setOpaque(false);
         String[] cols = {"#","Seleção","PJ","PTS","V","E","D","GM","GS","DG"};
         modelosClassificacao[gi] = new DefaultTableModel(null, cols) {
-            @Override public boolean isCellEditable(int row, int col) { return false; } // REQ: Inalterável
+            @Override public boolean isCellEditable(int row, int col) { return false; }
         };
         JTable tbl = new JTable(modelosClassificacao[gi]); configurarTabelaSimples(tbl);
         JScrollPane sp = new JScrollPane(tbl); panel.add(sp, BorderLayout.CENTER);
@@ -855,19 +1078,101 @@ public class MenuMatchCenter extends JFrame {
     }
 
     private JPanel createKnockoutPanel() {
-        JPanel p = new JPanel(new BorderLayout()); p.setOpaque(false);
-        modeloKnockout = new DefaultTableModel(new Object[8][5], new String[]{"Jogo","1.º","vs","2.º","Res"}) {
-            @Override public boolean isCellEditable(int row, int col) { return false; } // REQ: Inalterável
-        };
-        JTable tbl = new JTable(modeloKnockout); configurarTabelaSimples(tbl);
-        p.add(new JScrollPane(tbl), BorderLayout.CENTER); return p;
+        JPanel wrapper = new JPanel(new BorderLayout());
+        wrapper.setOpaque(false);
+
+        JLabel lbl = new JLabel("Caminho para a Final - Fase a Eliminar (Progresso Automático)", SwingConstants.CENTER);
+        lbl.setFont(new Font("Segoe UI", Font.BOLD, 18));
+        lbl.setForeground(MEDIUM_GREEN);
+        lbl.setBorder(new EmptyBorder(10, 0, 15, 0));
+        wrapper.add(lbl, BorderLayout.NORTH);
+
+        JPanel bracketPanel = new JPanel(new GridBagLayout());
+        bracketPanel.setOpaque(false);
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 10, 5, 10);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+
+        gbc.gridx = 0; gbc.gridy = 0; bracketPanel.add(createMatchBox(txtOitavos[0], txtOitavos[1], "Oitavos 1"), gbc);
+        gbc.gridx = 0; gbc.gridy = 2; bracketPanel.add(createMatchBox(txtOitavos[2], txtOitavos[3], "Oitavos 2"), gbc);
+        gbc.gridx = 0; gbc.gridy = 4; bracketPanel.add(createMatchBox(txtOitavos[4], txtOitavos[5], "Oitavos 3"), gbc);
+        gbc.gridx = 0; gbc.gridy = 6; bracketPanel.add(createMatchBox(txtOitavos[6], txtOitavos[7], "Oitavos 4"), gbc);
+
+        gbc.gridx = 6; gbc.gridy = 0; bracketPanel.add(createMatchBox(txtOitavos[8], txtOitavos[9], "Oitavos 5"), gbc);
+        gbc.gridx = 6; gbc.gridy = 2; bracketPanel.add(createMatchBox(txtOitavos[10], txtOitavos[11], "Oitavos 6"), gbc);
+        gbc.gridx = 6; gbc.gridy = 4; bracketPanel.add(createMatchBox(txtOitavos[12], txtOitavos[13], "Oitavos 7"), gbc);
+        gbc.gridx = 6; gbc.gridy = 6; bracketPanel.add(createMatchBox(txtOitavos[14], txtOitavos[15], "Oitavos 8"), gbc);
+
+        gbc.gridx = 1; gbc.gridy = 1; bracketPanel.add(createMatchBox(txtQuartos[0], txtQuartos[1], "Quartos 1"), gbc);
+        gbc.gridx = 1; gbc.gridy = 5; bracketPanel.add(createMatchBox(txtQuartos[2], txtQuartos[3], "Quartos 2"), gbc);
+        gbc.gridx = 5; gbc.gridy = 1; bracketPanel.add(createMatchBox(txtQuartos[4], txtQuartos[5], "Quartos 3"), gbc);
+        gbc.gridx = 5; gbc.gridy = 5; bracketPanel.add(createMatchBox(txtQuartos[6], txtQuartos[7], "Quartos 4"), gbc);
+
+        gbc.gridx = 2; gbc.gridy = 3; bracketPanel.add(createMatchBox(txtMeias[0], txtMeias[1], "Meia-Final 1"), gbc);
+        gbc.gridx = 4; gbc.gridy = 3; bracketPanel.add(createMatchBox(txtMeias[2], txtMeias[3], "Meia-Final 2"), gbc);
+
+        gbc.gridx = 3; gbc.gridy = 3; bracketPanel.add(createMatchBox(txtFinal[0], txtFinal[1], "GRANDE FINAL"), gbc);
+
+        gbc.gridx = 3; gbc.gridy = 5; bracketPanel.add(createMatchBox(txtTerceiroLugar[0], txtTerceiroLugar[1], "3º LUGAR"), gbc);
+
+        gbc.gridx = 3; gbc.gridy = 1;
+        JPanel pCamp = new JPanel(new BorderLayout(0, 5));
+        pCamp.setOpaque(false);
+        JLabel lblC = new JLabel("🏆 CAMPEÃO", SwingConstants.CENTER);
+        lblC.setFont(new Font("Segoe UI", Font.BOLD, 16)); lblC.setForeground(new Color(200, 150, 0));
+
+        txtCampeao.setEditable(false); txtCampeao.setHorizontalAlignment(JTextField.CENTER);
+        txtCampeao.setFont(new Font("Segoe UI", Font.BOLD, 18));
+        txtCampeao.setBackground(new Color(255, 240, 150)); txtCampeao.setForeground(DARK_GREEN);
+        txtCampeao.setBorder(BorderFactory.createCompoundBorder(new LineBorder(new Color(200, 150, 0), 2), new EmptyBorder(8, 10, 8, 10)));
+
+        pCamp.add(lblC, BorderLayout.NORTH); pCamp.add(txtCampeao, BorderLayout.CENTER);
+        bracketPanel.add(pCamp, gbc);
+
+        JScrollPane scroll = new JScrollPane(bracketPanel);
+        scroll.setOpaque(false); scroll.getViewport().setOpaque(false);
+        scroll.setBorder(null);
+
+        wrapper.add(scroll, BorderLayout.CENTER);
+        return wrapper;
+    }
+
+    private JPanel createMatchBox(JTextField t1, JTextField t2, String title) {
+        JPanel p = new JPanel(new GridLayout(2, 1, 0, 2));
+        p.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createTitledBorder(new LineBorder(DARK_GREEN, 1), title, TitledBorder.CENTER, TitledBorder.TOP, new Font("Segoe UI", Font.BOLD, 10), DARK_GREEN),
+                new EmptyBorder(2, 4, 4, 4)
+        ));
+        p.setOpaque(false);
+
+        t1.setEditable(false); t1.setHorizontalAlignment(JTextField.CENTER); t1.setFont(BOLD_FONT);
+        t2.setEditable(false); t2.setHorizontalAlignment(JTextField.CENTER); t2.setFont(BOLD_FONT);
+        t1.setBackground(new Color(245, 255, 245)); t1.setForeground(DARK_GREEN);
+        t2.setBackground(new Color(245, 255, 245)); t2.setForeground(DARK_GREEN);
+        t1.setBorder(new LineBorder(new Color(200, 220, 200)));
+        t2.setBorder(new LineBorder(new Color(200, 220, 200)));
+
+        p.add(t1); p.add(t2);
+        p.setPreferredSize(new Dimension(130, 60));
+        return p;
     }
 
     private JPanel createGlobalStatsSidebar() {
         JPanel card = createCard(); card.setLayout(new BorderLayout(0, 12));
+        card.setBorder(new EmptyBorder(18, 16, 16, 16));
         lblValGolos = new JLabel("0"); lblValAmarelos = new JLabel("0"); lblValVermelhos = new JLabel("0"); lblValEspectadores = new JLabel("0");
-        JPanel grid = new JPanel(new GridLayout(4, 1)); grid.setOpaque(false);
-        grid.add(lblValGolos); grid.add(lblValAmarelos); grid.add(lblValVermelhos); grid.add(lblValEspectadores);
+
+        JLabel tituloSidebar = new JLabel("ESTATÍSTICAS GLOBAIS", SwingConstants.CENTER);
+        tituloSidebar.setFont(new Font("Segoe UI", Font.BOLD, 15));
+        tituloSidebar.setForeground(DARK_GREEN);
+        tituloSidebar.setBorder(new EmptyBorder(0, 0, 6, 0));
+        card.add(tituloSidebar, BorderLayout.NORTH);
+
+        JPanel grid = new JPanel(new GridLayout(4, 1, 0, 12)); grid.setOpaque(false);
+        grid.add(statBox("GOLOS MARCADOS", lblValGolos, DARK_GREEN));
+        grid.add(statBox("CARTÕES AMARELOS", lblValAmarelos, new Color(214, 158, 0)));
+        grid.add(statBox("CARTÕES VERMELHOS", lblValVermelhos, new Color(180, 40, 40)));
+        grid.add(statBox("MÉDIA DE ESPECTADORES", lblValEspectadores, new Color(20, 70, 120)));
         card.add(grid, BorderLayout.CENTER);
 
         JButton btnAddResultados = makeButton("Adicionar Resultados", ACCENT_YELLOW, DARK_GREEN);
@@ -876,16 +1181,122 @@ public class MenuMatchCenter extends JFrame {
         card.setPreferredSize(new Dimension(260, 0)); return card;
     }
 
-    private void configurarTabelaSimples(JTable t) {
-        t.setFont(MAIN_FONT); t.setRowHeight(30); t.setGridColor(TABLE_GRID);
-        JTableHeader h = t.getTableHeader(); h.setFont(BOLD_FONT); h.setBackground(new Color(200, 225, 200)); h.setForeground(DARK_GREEN);
+    private JPanel statBox(String titulo, JLabel valor, Color cor) {
+        JPanel box = new JPanel(new BorderLayout(0, 2)); box.setOpaque(false);
+        JLabel cap = new JLabel(titulo, SwingConstants.CENTER);
+        cap.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        cap.setForeground(new Color(70, 95, 70));
+        valor.setFont(new Font("Segoe UI", Font.BOLD, 32));
+        valor.setForeground(cor);
+        valor.setHorizontalAlignment(SwingConstants.CENTER);
+        box.add(cap, BorderLayout.NORTH);
+        box.add(valor, BorderLayout.CENTER);
+        return box;
     }
-    private TitledBorder titledCardBorder(String title) { return BorderFactory.createTitledBorder(new LineBorder(DARK_GREEN, 1, true), "  " + title + "  "); }
-    private TitledBorder subBorder(String title) { return BorderFactory.createTitledBorder(new LineBorder(DARK_GREEN, 1), title); }
+
+    private void configurarTabelaSimples(JTable t) {
+        t.setFont(MAIN_FONT);
+        t.setRowHeight(30);
+        t.setGridColor(TABLE_GRID);
+        t.setShowVerticalLines(false);
+        t.setShowHorizontalLines(true);
+        t.setIntercellSpacing(new Dimension(0, 1));
+        t.setFillsViewportHeight(true);
+        t.setSelectionBackground(new Color(214, 238, 218));
+        t.setSelectionForeground(DARK_GREEN);
+
+        final Color zebra = new Color(244, 250, 244);
+        DefaultTableCellRenderer cellRenderer = new DefaultTableCellRenderer() {
+            @Override public Component getTableCellRendererComponent(JTable tab, Object val, boolean sel, boolean foc, int row, int col) {
+                Component c = super.getTableCellRendererComponent(tab, val, sel, foc, row, col);
+                if (!sel) {
+                    c.setBackground(row % 2 == 0 ? PANEL_WHITE : zebra);
+                    c.setForeground(TEXT_DARK);
+                }
+                setHorizontalAlignment(val instanceof Number ? SwingConstants.RIGHT : SwingConstants.LEFT);
+                setBorder(new EmptyBorder(0, 10, 0, 10));
+                return c;
+            }
+        };
+        for (int i = 0; i < t.getColumnCount(); i++) t.getColumnModel().getColumn(i).setCellRenderer(cellRenderer);
+
+        JTableHeader h = t.getTableHeader();
+        h.setReorderingAllowed(false);
+        h.setPreferredSize(new Dimension(h.getPreferredSize().width, 34));
+        h.setDefaultRenderer(new DefaultTableCellRenderer() {
+            @Override public Component getTableCellRendererComponent(JTable tab, Object val, boolean sel, boolean foc, int row, int col) {
+                JLabel l = (JLabel) super.getTableCellRendererComponent(tab, val, sel, foc, row, col);
+                l.setOpaque(true);
+                l.setBackground(DARK_GREEN);
+                l.setForeground(Color.WHITE);
+                l.setFont(BOLD_FONT);
+                l.setHorizontalAlignment(SwingConstants.CENTER);
+                l.setBorder(new EmptyBorder(6, 8, 6, 8));
+                return l;
+            }
+        });
+    }
+    private TitledBorder titledCardBorder(String title) {
+        TitledBorder b = BorderFactory.createTitledBorder(new LineBorder(DARK_GREEN, 1, true), "  " + title + "  ");
+        b.setTitleFont(TITLE_FONT); b.setTitleColor(DARK_GREEN); return b;
+    }
+    private TitledBorder subBorder(String title) {
+        TitledBorder b = BorderFactory.createTitledBorder(new LineBorder(new Color(150, 185, 150), 1, true), " " + title + " ");
+        b.setTitleFont(BOLD_FONT); b.setTitleColor(MEDIUM_GREEN); return b;
+    }
     private JButton makeButton(String text, Color bg, Color fg) {
-        JButton btn = new JButton(text); btn.setBackground(bg); btn.setForeground(fg); btn.setFocusPainted(false); return btn;
+        JButton btn = new JButton(text) {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                Color base = getBackground();
+                Color fill = getModel().isPressed() ? base.darker()
+                        : getModel().isRollover() ? tint(base, 0.14f) : base;
+                g2.setColor(fill);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 14, 14);
+                g2.setColor(base.darker());
+                g2.setStroke(new BasicStroke(1f));
+                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 14, 14);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        btn.setBackground(bg);
+        btn.setForeground(fg);
+        btn.setFont(BOLD_FONT);
+        btn.setFocusPainted(false);
+        btn.setContentAreaFilled(false);
+        btn.setBorderPainted(false);
+        btn.setOpaque(false);
+        btn.setBorder(new EmptyBorder(9, 18, 9, 18));
+        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        return btn;
     }
     private JLabel label(String text) { JLabel l = new JLabel(text); l.setFont(BOLD_FONT); l.setForeground(DARK_GREEN); return l; }
-    private JTextField styledField() { return new JTextField(); }
-    private JComboBox<String> styledCombo(String[] items) { return new JComboBox<>(items); }
+    private JTextField styledField() {
+        JTextField f = new JTextField();
+        f.setFont(MAIN_FONT);
+        f.setBackground(PANEL_WHITE);
+        f.setForeground(TEXT_DARK);
+        f.setCaretColor(DARK_GREEN);
+        f.setBorder(BorderFactory.createCompoundBorder(
+                new LineBorder(new Color(180, 200, 180), 1, true),
+                new EmptyBorder(5, 8, 5, 8)));
+        return f;
+    }
+    private JComboBox<String> styledCombo(String[] items) {
+        JComboBox<String> cb = new JComboBox<>(items);
+        cb.setFont(MAIN_FONT);
+        cb.setBackground(PANEL_WHITE);
+        cb.setForeground(TEXT_DARK);
+        cb.setBorder(new LineBorder(new Color(180, 200, 180), 1, true));
+        cb.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        return cb;
+    }
+    private static Color tint(Color c, float f) {
+        int r = (int) (c.getRed()   + (255 - c.getRed())   * f);
+        int g = (int) (c.getGreen() + (255 - c.getGreen()) * f);
+        int b = (int) (c.getBlue()  + (255 - c.getBlue())  * f);
+        return new Color(Math.min(255, r), Math.min(255, g), Math.min(255, b), c.getAlpha());
+    }
 }

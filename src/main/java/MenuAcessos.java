@@ -7,7 +7,6 @@ import java.util.List;
 
 public class MenuAcessos extends JPanel {
 
-    // Paleta de cores do Mundial
     private final Color verdeBrasil = new Color(0, 156, 59);
     private final Color azulBrasil = new Color(0, 39, 118);
     private final Color amareloBrasil = new Color(255, 223, 0);
@@ -15,7 +14,6 @@ public class MenuAcessos extends JPanel {
     private int precoAtualUnitario = 50;
     private final String[] nomesSetores = {"Bancada Central", "Zona VIP", "Topos"};
 
-    // UI Elements
     private JComboBox<String> cbGrupo;
     private JComboBox<JogoSimples> cbJogos;
     private JComboBox<String> cbSetor;
@@ -25,19 +23,16 @@ public class MenuAcessos extends JPanel {
     private JLabel lblEstadio;
     private final JProgressBar[] barras = new JProgressBar[3];
 
-    // ==========================================
-    // PERSISTÊNCIA E DADOS (Ficheiros Binários)
-    // ==========================================
     private static final String FILE_BILHETES = "bilhetes_dados.dat";
     private static final String FILE_MATCHCENTER = "matchcenter_dados.dat";
     private static final String FILE_MUNDIAL = "mundial_dados.dat";
 
-    // Mapeia o ID do Jogo para os bilhetes vendidos [Central, VIP, Topos]
     private Map<String, int[]> bilhetesVendidos = new HashMap<>();
     private Map<String, int[]> estadiosGlobais = new HashMap<>();
     private List<JogoSimples> todosJogos = new ArrayList<>();
 
-    // Classe auxiliar para isolar os dados lidos do MenuMatchCenter
+    private Runnable onUpdateAcessos;
+
     private static class JogoSimples {
         String id, partida, estadio; int grupo;
         JogoSimples(String i, int g, String p, String e) { id = i; grupo = g; partida = p; estadio = e; }
@@ -45,83 +40,91 @@ public class MenuAcessos extends JPanel {
     }
 
     public MenuAcessos() {
+        this(null);
+    }
+
+    public MenuAcessos(Runnable onUpdateAcessos) {
+        this.onUpdateAcessos = onUpdateAcessos;
         carregarDados();
 
         setLayout(new GridLayout(1, 2, 20, 20));
         setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
         Color corPaineis = new Color(255, 255, 255, 230);
 
-        // ==========================================
-        // LADO ESQUERDO: Emissão de Bilhetes
-        // ==========================================
         JPanel painelEsquerdo = new JPanel(new GridLayout(10, 1, 5, 5)) {
             @Override protected void paintComponent(Graphics g) {
                 g.setColor(corPaineis); g.fillRect(0, 0, getWidth(), getHeight()); super.paintComponent(g);
             }
         };
         painelEsquerdo.setOpaque(false);
-        painelEsquerdo.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(verdeBrasil, 2), "Emissão de Bilhetes", TitledBorder.LEFT, TitledBorder.TOP, new Font("Arial", Font.BOLD, 14), azulBrasil));
+        painelEsquerdo.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(verdeBrasil, 2), "Emissão de Bilhetes", TitledBorder.LEFT, TitledBorder.TOP, new Font("Segoe UI", Font.BOLD, 14), azulBrasil));
 
         String[] fases = { "Selecione a Fase...", "Grupo A","Grupo B","Grupo C","Grupo D","Grupo E","Grupo F","Grupo G","Grupo H", "Oitavos","Quartos","Meia-Final","Final" };
         cbGrupo = new JComboBox<>(fases);
         cbJogos = new JComboBox<>();
         cbSetor = new JComboBox<>(nomesSetores);
+        estilizarCombo(cbGrupo); estilizarCombo(cbJogos); estilizarCombo(cbSetor);
 
         lblPreco = new JLabel("Preço Unitário: -  |  TOTAL: -");
-        lblPreco.setFont(new Font("Arial", Font.BOLD, 14)); lblPreco.setForeground(azulBrasil);
+        lblPreco.setFont(new Font("Segoe UI", Font.BOLD, 14)); lblPreco.setForeground(azulBrasil);
 
         spQuantidade = new JSpinner(new SpinnerNumberModel(1, 1, 10, 1));
-
-        // REQ: Caixas de texto inalteráveis (Bloqueia a caixa de texto embutida no JSpinner para que só as setas funcionem)
         JSpinner.DefaultEditor spinnerEditor = (JSpinner.DefaultEditor) spQuantidade.getEditor();
         spinnerEditor.getTextField().setEditable(false);
 
-        btnEmitir = new JButton("EMITIR BILHETE");
+        btnEmitir = new JButton("EMITIR BILHETE") {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                Color base = getModel().isPressed() ? getBackground().darker() : getBackground();
+                g2.setColor(base);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 14, 14);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
         btnEmitir.setBackground(verdeBrasil); btnEmitir.setForeground(Color.WHITE);
-        btnEmitir.setFont(new Font("Arial", Font.BOLD, 14));
+        btnEmitir.setFont(new Font("Segoe UI", Font.BOLD, 15));
         btnEmitir.setFocusPainted(false);
-        btnEmitir.setOpaque(true);
-        btnEmitir.setContentAreaFilled(true);
+        btnEmitir.setOpaque(false);
+        btnEmitir.setContentAreaFilled(false);
+        btnEmitir.setBorderPainted(false);
+        btnEmitir.setCursor(new Cursor(Cursor.HAND_CURSOR));
 
-        painelEsquerdo.add(new JLabel("1. Selecionar Fase/Grupo:")); painelEsquerdo.add(cbGrupo);
-        painelEsquerdo.add(new JLabel("2. Selecionar Jogo:")); painelEsquerdo.add(cbJogos);
-        painelEsquerdo.add(new JLabel("3. Selecionar Setor:")); painelEsquerdo.add(cbSetor);
+        painelEsquerdo.add(lbl("1. Selecionar Fase/Grupo:")); painelEsquerdo.add(cbGrupo);
+        painelEsquerdo.add(lbl("2. Selecionar Jogo:")); painelEsquerdo.add(cbJogos);
+        painelEsquerdo.add(lbl("3. Selecionar Setor:")); painelEsquerdo.add(cbSetor);
         painelEsquerdo.add(lblPreco);
-        painelEsquerdo.add(new JLabel("4. Quantidade:")); painelEsquerdo.add(spQuantidade);
+        painelEsquerdo.add(lbl("4. Quantidade:")); painelEsquerdo.add(spQuantidade);
         painelEsquerdo.add(btnEmitir);
 
-        // ==========================================
-        // LADO DIREITO: Controlo de Lotação
-        // ==========================================
         JPanel painelDireito = new JPanel(new GridLayout(8, 1, 5, 5)) {
             @Override protected void paintComponent(Graphics g) {
                 g.setColor(corPaineis); g.fillRect(0, 0, getWidth(), getHeight()); super.paintComponent(g);
             }
         };
         painelDireito.setOpaque(false);
-        painelDireito.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(amareloBrasil, 2), "Controlo de Lotação (Tempo Real)", TitledBorder.LEFT, TitledBorder.TOP, new Font("Arial", Font.BOLD, 14), azulBrasil));
+        painelDireito.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(amareloBrasil, 2), "Controlo de Lotação (Tempo Real)", TitledBorder.LEFT, TitledBorder.TOP, new Font("Segoe UI", Font.BOLD, 14), azulBrasil));
 
         lblEstadio = new JLabel("Estádio: (selecione um jogo)");
-        lblEstadio.setFont(new Font("Arial", Font.BOLD, 16)); lblEstadio.setForeground(verdeBrasil);
+        lblEstadio.setFont(new Font("Segoe UI", Font.BOLD, 16)); lblEstadio.setForeground(verdeBrasil);
         painelDireito.add(lblEstadio); painelDireito.add(new JLabel(" "));
 
         for (int i = 0; i < 3; i++) {
             barras[i] = new JProgressBar(0, 100);
             barras[i].setStringPainted(true);
+            barras[i].setFont(new Font("Segoe UI", Font.BOLD, 12));
+            barras[i].setBackground(Color.WHITE);
+            barras[i].setBorder(BorderFactory.createLineBorder(new Color(200, 210, 200)));
             painelDireito.add(barras[i]);
             if (i < 2) painelDireito.add(new JLabel(" "));
         }
-
-        // ==========================================
-        // EVENTOS E LÓGICA DE NEGÓCIO
-        // ==========================================
 
         cbGrupo.addActionListener(e -> {
             cbJogos.removeAllItems();
             int idxFase = cbGrupo.getSelectedIndex() - 1;
             if (idxFase >= 0) {
                 for (JogoSimples j : todosJogos) {
-                    // REQ: Validação de Existência - Apenas popula os jogos com instâncias reais trazidas da memória do MatchCenter
                     if (j.grupo == idxFase) cbJogos.addItem(j);
                 }
             }
@@ -155,12 +158,31 @@ public class MenuAcessos extends JPanel {
             salvarBilhetes();
             atualizarUI();
 
+            if (this.onUpdateAcessos != null) {
+                this.onUpdateAcessos.run();
+            }
+
             int totalPago = precoAtualUnitario * qtd;
             JOptionPane.showMessageDialog(this, "RESUMO DA COMPRA:\nJogo: " + jogo.partida + "\nSetor: " + cbSetor.getSelectedItem() + "\nQuantidade: " + qtd + " bilhete(s)\nTOTAL PAGO: " + totalPago + "€", "Transação Concluída", JOptionPane.INFORMATION_MESSAGE);
         });
 
         add(painelEsquerdo);
         add(painelDireito);
+    }
+
+    private JLabel lbl(String texto) {
+        JLabel l = new JLabel(texto);
+        l.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        l.setForeground(azulBrasil);
+        return l;
+    }
+
+    private void estilizarCombo(JComboBox<?> cb) {
+        cb.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        cb.setBackground(Color.WHITE);
+        cb.setForeground(new Color(20, 30, 40));
+        cb.setBorder(BorderFactory.createLineBorder(new Color(180, 200, 180), 1, true));
+        cb.setCursor(new Cursor(Cursor.HAND_CURSOR));
     }
 
     private void atualizarUI() {
@@ -216,9 +238,6 @@ public class MenuAcessos extends JPanel {
         lblPreco.setText("Preço Unitário: " + precoAtualUnitario + "€  |  TOTAL: " + (precoAtualUnitario * qtd) + "€");
     }
 
-    // ==========================================
-    // LÓGICA DE PERSISTÊNCIA EM FICHEIROS BINÁRIOS
-    // ==========================================
     @SuppressWarnings("unchecked")
     private void carregarDados() {
         try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(FILE_BILHETES))) {
@@ -264,10 +283,5 @@ public class MenuAcessos extends JPanel {
         frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         frame.setSize(800, 500); frame.setLocationRelativeTo(null);
         frame.add(new MenuAcessos()); frame.setVisible(true);
-    }
-
-    public static void main(String[] args) {
-        try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); } catch (Exception ignored) {}
-        SwingUtilities.invokeLater(MenuAcessos::abrirJanela);
     }
 }

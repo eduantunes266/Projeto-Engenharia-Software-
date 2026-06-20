@@ -102,7 +102,6 @@ public class MenuMatchCenter extends JFrame {
     public MenuMatchCenter(boolean isAdmin) {
         this.isAdmin = isAdmin;
         carregarDados();
-        semearFaseGruposSeVazio();
         inicializarModelosCalendario();
 
         setTitle("FIFA World Cup Match Center" + (isAdmin ? "" : "  —  Modo Consulta (Adepto)"));
@@ -141,30 +140,6 @@ public class MenuMatchCenter extends JFrame {
         try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(BD_FILE))) {
             oos.writeObject(bd);
         } catch (IOException e) { e.printStackTrace(); }
-    }
-
-    private void semearFaseGruposSeVazio() {
-        if (!bd.jogosRegistados.isEmpty()) return;
-        String[] estadiosPreDefinidos = {"Maracanã", "Arena Corinthians", "Mineirão", "Castelão"};
-        Random rnd = new Random();
-        for (int gi = 0; gi < 8; gi++) {
-            List<String> equipas = bd.grupos.get(gi);
-            if (equipas.size() < 4) continue;
-            String[][] confrontos = {
-                    {equipas.get(0), equipas.get(1)}, {equipas.get(2), equipas.get(3)},
-                    {equipas.get(0), equipas.get(2)}, {equipas.get(1), equipas.get(3)},
-                    {equipas.get(0), equipas.get(3)}, {equipas.get(1), equipas.get(2)}
-            };
-            int dia = 10;
-            for (String[] conf : confrontos) {
-                Jogo j = new Jogo(gi, conf[0], conf[1], String.format("%02d/06/2026", dia++), "16:00", estadiosPreDefinidos[rnd.nextInt(estadiosPreDefinidos.length)]);
-                bd.jogosRegistados.add(j);
-                int g1 = rnd.nextInt(4); int g2 = rnd.nextInt(4);
-                if (g1 == g2 && rnd.nextBoolean()) g1++;
-                bd.resultados.put(j.id, new Resultado(gi, conf[0], conf[1], g1, g2, rnd.nextInt(4), 0, 45000 + rnd.nextInt(15000)));
-            }
-        }
-        salvarDados();
     }
 
     private void inicializarModelosCalendario() {

@@ -944,6 +944,17 @@ public class MenuMatchCenter extends JFrame {
         spEq.setBorder(new LineBorder(TABLE_GRID));
         leftPanel.add(spEq, BorderLayout.CENTER);
 
+        DefaultListModel<String> listModel = new DefaultListModel<>();
+        Runnable refreshLista = () -> {
+            listModel.clear();
+            Set<String> emGrupos = new HashSet<>();
+            for (List<String> grupo : bd.grupos) emGrupos.addAll(grupo);
+            for (String s : GestorDados.getInstance().selecoes) {
+                if (!emGrupos.contains(s)) listModel.addElement(s);
+            }
+        };
+        refreshLista.run();
+
         JPanel btnRemPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         btnRemPanel.setBackground(PANEL_WHITE);
         JButton btnRemover = makeButton("Remover Selecao", PANEL_WHITE, DARK_GREEN);
@@ -955,6 +966,7 @@ public class MenuMatchCenter extends JFrame {
             bd.grupos.get(gi).remove(equipa);
             salvarDados();
             refreshTabela.run();
+            refreshLista.run();
         });
         btnRemPanel.add(btnRemover);
         leftPanel.add(btnRemPanel, BorderLayout.SOUTH);
@@ -964,18 +976,6 @@ public class MenuMatchCenter extends JFrame {
         rightPanel.setBorder(BorderFactory.createTitledBorder(
                 new LineBorder(DARK_GREEN), "Adicionar ao Grupo",
                 TitledBorder.LEFT, TitledBorder.TOP, BOLD_FONT, DARK_GREEN));
-
-        DefaultListModel<String> listModel = new DefaultListModel<>();
-        Runnable refreshLista = () -> {
-            int gi = cbGrupoEd.getSelectedIndex();
-            listModel.clear();
-            List<String> noGrupo = bd.grupos.get(gi);
-            for (String s : GestorDados.getInstance().selecoes) {
-                if (!noGrupo.contains(s)) listModel.addElement(s);
-            }
-        };
-        refreshLista.run();
-        cbGrupoEd.addActionListener(e -> refreshLista.run());
 
         JList<String> jList = new JList<>(listModel);
         jList.setFont(MAIN_FONT);
@@ -1009,16 +1009,7 @@ public class MenuMatchCenter extends JFrame {
             String sel = jList.getSelectedValue();
             if (sel == null) { JOptionPane.showMessageDialog(dlg, "Seleccione uma seleção da lista."); return; }
             int gi = cbGrupoEd.getSelectedIndex();
-            if (bd.grupos.get(gi).contains(sel)) { JOptionPane.showMessageDialog(dlg, "Já está neste grupo."); return; }
-            for (int g = 0; g < 8; g++) {
-                if (g != gi && bd.grupos.get(g).contains(sel)) {
-                    int resp = JOptionPane.showConfirmDialog(dlg,
-                            sel + " está no Grupo " + (char)('A'+g) + ". Mover para " + grupoNomes[gi] + "?",
-                            "Mover Seleção", JOptionPane.YES_NO_OPTION);
-                    if (resp == JOptionPane.YES_OPTION) bd.grupos.get(g).remove(sel);
-                    else return;
-                }
-            }
+            if (bd.grupos.get(gi).size() >= 4) { JOptionPane.showMessageDialog(dlg, "Cada grupo só pode ter no máximo 4 seleções."); return; }
             bd.grupos.get(gi).add(sel);
             salvarDados();
             refreshTabela.run();

@@ -7,7 +7,9 @@ public class GestorDados implements Serializable {
 
     private static GestorDados instance;
 
-    public List<String> selecoes = new ArrayList<>();
+    public List<String> selecoes = new ArrayList<>(Arrays.asList(
+            "Brasil", "Croácia", "México", "Camarões", "Portugal", "Alemanha", "Espanha", "Argentina", "França"
+    ));
 
     public Map<String, int[]> estadios = new HashMap<>();
 

@@ -40,3 +40,4 @@ build/
 
 ### Build / Runtime ###
 out/
+*.dat

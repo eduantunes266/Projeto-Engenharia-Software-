@@ -57,6 +57,7 @@ public class MenuMatchCenter extends JFrame {
     private CardLayout cardLayout;
     private JButton[] navButtons;
     private int[] navTargets;
+    private JButton btnResetTorneio;
     private final boolean isAdmin;
 
     public static class MatchCenterBD implements Serializable {
@@ -254,6 +255,46 @@ public class MenuMatchCenter extends JFrame {
         txtTerceiroLugar[1].setText(getDerrotado(txtMeias[2].getText(), txtMeias[3].getText(), 10));
 
         txtCampeao.setText(getVencedor(txtFinal[0].getText(), txtFinal[1].getText(), 12));
+        atualizarBotaoReset();
+    }
+
+    private void atualizarBotaoReset() {
+        if (btnResetTorneio == null) return;
+        String campeao = txtCampeao.getText();
+        boolean definido = campeao != null && !campeao.isEmpty() && !campeao.equals("A Definir");
+        btnResetTorneio.setVisible(isAdmin && definido);
+    }
+
+    private void resetarTorneio() {
+        int resp = JOptionPane.showConfirmDialog(this,
+                "Isto vai apagar grupos, jogos, resultados, árbitros, estádios, hotéis, centros, viagens e bilhetes.\nAs seleções disponíveis são mantidas.\n\nResetar o torneio?",
+                "Resetar Torneio", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (resp != JOptionPane.YES_OPTION) return;
+
+        bd.grupos.clear();
+        for (int i = 0; i < 8; i++) bd.grupos.add(new ArrayList<>());
+        bd.arbitros.clear();
+        bd.jogosRegistados.clear();
+        bd.resultados.clear();
+        bd.alocacoes.clear();
+        bd.equipasArbitragem.clear();
+        salvarDados();
+
+        GestorDados gd = GestorDados.getInstance();
+        gd.estadios.clear();
+        gd.hoteisVinculados.clear();
+        gd.centrosVinculados.clear();
+        gd.salvarDados();
+
+        new File("recursos_dados.dat").delete();
+        new File("bilhetes_dados.dat").delete();
+
+        for (DefaultTableModel m : modelosCalendario) if (m != null) m.setRowCount(0);
+        if (modeloArbitros != null) modeloArbitros.setRowCount(0);
+        if (modeloAlocacoes != null) modeloAlocacoes.setRowCount(0);
+        recomputarTudo();
+
+        JOptionPane.showMessageDialog(this, "Torneio reposto. Ficaram apenas as seleções disponíveis para formar os grupos.", "Reset Concluído", JOptionPane.INFORMATION_MESSAGE);
     }
 
     private String getVencedor(String t1, String t2, int fase) {
@@ -1099,7 +1140,17 @@ public class MenuMatchCenter extends JFrame {
         txtCampeao.setBorder(BorderFactory.createCompoundBorder(new LineBorder(new Color(200, 150, 0), 2), new EmptyBorder(8, 10, 8, 10)));
 
         pCamp.add(lblC, BorderLayout.NORTH); pCamp.add(txtCampeao, BorderLayout.CENTER);
+
+        btnResetTorneio = makeButton("Resetar Torneio", new Color(180, 30, 30), Color.WHITE);
+        btnResetTorneio.setVisible(false);
+        btnResetTorneio.addActionListener(e -> resetarTorneio());
+        JPanel pReset = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 8));
+        pReset.setOpaque(false);
+        pReset.add(btnResetTorneio);
+        pCamp.add(pReset, BorderLayout.SOUTH);
+
         bracketPanel.add(pCamp, gbc);
+        atualizarBotaoReset();
 
         JScrollPane scroll = new JScrollPane(bracketPanel);
         scroll.setOpaque(false); scroll.getViewport().setOpaque(false);

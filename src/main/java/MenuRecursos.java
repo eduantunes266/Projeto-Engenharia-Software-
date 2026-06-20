@@ -1,19 +1,19 @@
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.border.LineBorder;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.JTableHeader;
 import java.awt.*;
 import java.awt.event.*;
 import java.io.*;
 import java.util.*;
 import java.util.List;
 
-public class PaginaRecursos extends JFrame {
+public class MenuRecursos extends JFrame {
 
-    // =========================================================================
-    // PERSISTÊNCIA DE DADOS (Ficheiros Binários)
-    // =========================================================================
     public static class RecursosBD implements Serializable {
         private static final long serialVersionUID = 1L;
         List<Object[]> hoteis = new ArrayList<>();
@@ -34,7 +34,7 @@ public class PaginaRecursos extends JFrame {
     private final String BD_FILE = "recursos_dados.dat";
     private DefaultTableModel modeloHoteis, modeloCentros, modeloEstadios, modeloViagens;
 
-    public PaginaRecursos() {
+    public MenuRecursos() {
         carregarDados();
 
         setTitle("Mundial 2026 - Gestão de Recursos");
@@ -102,13 +102,9 @@ public class PaginaRecursos extends JFrame {
             @Override protected Insets getTabInsets(int tabPlacement, int tabIndex) { return new Insets(8, 20, 8, 30); }
         });
 
-        // Sincroniza logo ao iniciar
         sincronizarEstadiosGlobais();
     }
 
-    // =========================================================================
-    // LÓGICA DE DADOS (Persistência e Leitura Dinâmica do MatchCenter)
-    // =========================================================================
     private void carregarDados() {
         File file = new File(BD_FILE);
         if (file.exists()) {
@@ -126,7 +122,6 @@ public class PaginaRecursos extends JFrame {
         } catch (IOException e) { e.printStackTrace(); }
     }
 
-    // REQ: Validação de Existência - Carrega exclusivamente as equipas que foram criadas no MatchCenter
     @SuppressWarnings("unchecked")
     private List<String> getEquipasDoTorneio() {
         List<String> equipas = new ArrayList<>();
@@ -156,7 +151,6 @@ public class PaginaRecursos extends JFrame {
         for (String eq : getEquipasDoTorneio()) cb.addItem(eq);
     }
 
-    // REQ: Atualização Dinâmica - Injeta os estádios criados aqui diretamente no GestorDados para o MatchCenter os conseguir ler
     private void sincronizarEstadiosGlobais() {
         try {
             for (Object[] row : bd.estadios) {
@@ -165,12 +159,9 @@ public class PaginaRecursos extends JFrame {
                 });
             }
             GestorDados.getInstance().salvarDados();
-        } catch (Throwable ignore) {} // Impede crash se GestorDados for alterado
+        } catch (Throwable ignore) {}
     }
 
-    // =========================================================================
-    // TAB HOTÉIS (REQ: Atribuir a TODAS as equipas, Caixas Inalteráveis)
-    // =========================================================================
     private JPanel criarPainelHoteisGeral() {
         JPanel painel = new JPanel(new BorderLayout()); painel.setOpaque(false);
         painel.setBorder(new EmptyBorder(20, 0, 0, 0));
@@ -178,13 +169,12 @@ public class PaginaRecursos extends JFrame {
         JPanel cardLargo = new JPanel(new GridLayout(1, 2, 30, 0)); cardLargo.setOpaque(false);
 
         String[] colunas = {"Hotel", "Cidade", "Quartos", "Equipa", "Datas"};
-        // REQ: setEditable(false) torna a leitura restrita nas tabelas
         modeloHoteis = new DefaultTableModel(null, colunas) {
             @Override public boolean isCellEditable(int r, int c) { return false; }
         };
         for (Object[] row : bd.hoteis) modeloHoteis.addRow(row);
 
-        JTable tabelaHoteis = new JTable(modeloHoteis); tabelaHoteis.setRowHeight(25);
+        JTable tabelaHoteis = new JTable(modeloHoteis); estilizarTabela(tabelaHoteis);
 
         JPanel cardTabela = criarCardBase("HOTÉIS CADASTRADOS", null);
         cardTabela.add(embrulharTabela(tabelaHoteis));
@@ -197,7 +187,7 @@ public class PaginaRecursos extends JFrame {
         JTextField txtQuartos = campoPlaceholder("Ex: 150");
 
         JComboBox<String> cbEquipa = criarDropdown(new String[0]);
-        setupDynamicEquipas(cbEquipa); // REQ: Permite que TODAS as equipas recebam alojamento
+        setupDynamicEquipas(cbEquipa);
 
         JTextField txtDatas = campoPlaceholder("DD/MM/AAAA - DD/MM/AAAA");
 
@@ -238,9 +228,6 @@ public class PaginaRecursos extends JFrame {
         cardLargo.add(cardTabela); cardLargo.add(cardForm); painel.add(cardLargo, BorderLayout.CENTER); return painel;
     }
 
-    // =========================================================================
-    // TAB CENTROS DE TREINO
-    // =========================================================================
     private JPanel criarPainelCentrosGeral() {
         JPanel painel = new JPanel(new BorderLayout()); painel.setOpaque(false);
         painel.setBorder(new EmptyBorder(20, 0, 0, 0));
@@ -249,11 +236,11 @@ public class PaginaRecursos extends JFrame {
 
         String[] colunas = {"Centro", "Localização", "Equipa Vinculada"};
         modeloCentros = new DefaultTableModel(null, colunas) {
-            @Override public boolean isCellEditable(int r, int c) { return false; } // REQ: Inalterável
+            @Override public boolean isCellEditable(int r, int c) { return false; }
         };
         for (Object[] row : bd.centros) modeloCentros.addRow(row);
 
-        JTable tabelaCentros = new JTable(modeloCentros); tabelaCentros.setRowHeight(25);
+        JTable tabelaCentros = new JTable(modeloCentros); estilizarTabela(tabelaCentros);
 
         JPanel cardTabela = criarCardBase("CENTROS DE TREINO", null);
         cardTabela.add(embrulharTabela(tabelaCentros));
@@ -299,9 +286,6 @@ public class PaginaRecursos extends JFrame {
         cardLargo.add(cardTabela); cardLargo.add(cardForm); painel.add(cardLargo, BorderLayout.CENTER); return painel;
     }
 
-    // =========================================================================
-    // TAB ESTÁDIOS (REQ: Variável/Campo estado relvado removido totalmente)
-    // =========================================================================
     private JPanel criarPainelEstadiosGeral() {
         JPanel painel = new JPanel(new BorderLayout()); painel.setOpaque(false);
         painel.setBorder(new EmptyBorder(20, 0, 0, 0));
@@ -310,11 +294,11 @@ public class PaginaRecursos extends JFrame {
 
         String[] colunas = {"Estádio", "Central", "Topos", "VIP", "Total"};
         modeloEstadios = new DefaultTableModel(null, colunas) {
-            @Override public boolean isCellEditable(int r, int c) { return false; } // REQ: Inalterável
+            @Override public boolean isCellEditable(int r, int c) { return false; }
         };
         for (Object[] row : bd.estadios) modeloEstadios.addRow(row);
 
-        JTable tabelaEstadios = new JTable(modeloEstadios); tabelaEstadios.setRowHeight(25);
+        JTable tabelaEstadios = new JTable(modeloEstadios); estilizarTabela(tabelaEstadios);
 
         JPanel cardTabela = criarCardBase("ESTÁDIOS CADASTRADOS", null);
         cardTabela.add(embrulharTabela(tabelaEstadios));
@@ -340,7 +324,7 @@ public class PaginaRecursos extends JFrame {
 
             Object[] newRow = new Object[]{nome, c, t, v, String.valueOf(total)};
             modeloEstadios.addRow(newRow); bd.estadios.add(newRow); salvarDados();
-            sincronizarEstadiosGlobais(); // REQ: Notifica o GestorDados / MatchCenter
+            sincronizarEstadiosGlobais();
 
             limpar(txtNome, txtCentral, txtTopos, txtVip);
             info("Estádio registado!");
@@ -349,9 +333,6 @@ public class PaginaRecursos extends JFrame {
         cardLargo.add(cardTabela); cardLargo.add(cardForm); painel.add(cardLargo, BorderLayout.CENTER); return painel;
     }
 
-    // =========================================================================
-    // TAB VIAGENS (REQ: Validação 2 Horas)
-    // =========================================================================
     private JPanel criarPainelViagensGeral() {
         JPanel painel = new JPanel(new BorderLayout()); painel.setOpaque(false);
         painel.setBorder(new EmptyBorder(20, 0, 0, 0));
@@ -364,11 +345,11 @@ public class PaginaRecursos extends JFrame {
 
         String[] colunas = {"Seleção", "Veículo", "Rota", "Data/Hora"};
         modeloViagens = new DefaultTableModel(null, colunas) {
-            @Override public boolean isCellEditable(int r, int c) { return false; } // REQ: Inalterável
+            @Override public boolean isCellEditable(int r, int c) { return false; }
         };
         for(Object[] row : bd.viagens) modeloViagens.addRow(row);
 
-        JTable tabelaViagens = new JTable(modeloViagens); tabelaViagens.setRowHeight(25);
+        JTable tabelaViagens = new JTable(modeloViagens); estilizarTabela(tabelaViagens);
 
         JComboBox<String> cbVeiculo = criarDropdown(new String[]{"Autocarro Oficial Seleção", "Voo Charter Privado", "Comboio de Alta Velocidade"});
         JTextField txtRota = campoPlaceholder("Ex: Hotel → Estádio");
@@ -384,7 +365,6 @@ public class PaginaRecursos extends JFrame {
             if (rota.isEmpty() || data.isEmpty()) { aviso("Preencha a rota e a data."); return; }
             String selecao = (String) cbSelecao.getSelectedItem();
 
-            // REQ: Validação rigorosa do agendamento (Mínimo de 2h entre viagens)
             long novosMins = converterDataParaMinutos(data);
             if (novosMins == -1) { aviso("Formato inválido! Use rigorosamente: DD/MM HH:MM"); return; }
 
@@ -417,7 +397,6 @@ public class PaginaRecursos extends JFrame {
         painel.add(topoSelecao, BorderLayout.NORTH); painel.add(centro, BorderLayout.CENTER); return painel;
     }
 
-    // Helper matemático para validar a restrição de 2 horas nas deslocações
     private long converterDataParaMinutos(String dataHora) {
         try {
             if (!dataHora.matches("^(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[012]) ([01][0-9]|2[0-3]):[0-5][0-9]$")) return -1;
@@ -428,9 +407,6 @@ public class PaginaRecursos extends JFrame {
         } catch (Exception e) { return -1; }
     }
 
-    // =========================================================================
-    // UI HELPERS
-    // =========================================================================
     private void removerLinha(JTable tabela, List<Object[]> listaBD, String oQue) {
         int row = tabela.getSelectedRow();
         if (row < 0) { aviso("Selecione um " + oQue + " na tabela."); return; }
@@ -447,20 +423,70 @@ public class PaginaRecursos extends JFrame {
     private void limpar(JTextField... campos) {
         for (JTextField f : campos) { Object ph = f.getClientProperty("placeholder"); f.setText(ph == null ? "" : ph.toString()); f.setForeground(Color.GRAY); }
     }
+    private void estilizarTabela(JTable t) {
+        final Color verdeEscuro = new Color(0, 74, 35);
+        final Color textoEscuro = new Color(30, 40, 30);
+        final Color zebra = new Color(244, 250, 244);
+        t.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        t.setRowHeight(30);
+        t.setGridColor(new Color(214, 228, 214));
+        t.setShowVerticalLines(false);
+        t.setShowHorizontalLines(true);
+        t.setIntercellSpacing(new Dimension(0, 1));
+        t.setFillsViewportHeight(true);
+        t.setSelectionBackground(new Color(214, 238, 218));
+        t.setSelectionForeground(verdeEscuro);
+
+        DefaultTableCellRenderer cell = new DefaultTableCellRenderer() {
+            @Override public Component getTableCellRendererComponent(JTable tab, Object val, boolean sel, boolean foc, int row, int col) {
+                Component c = super.getTableCellRendererComponent(tab, val, sel, foc, row, col);
+                if (!sel) { c.setBackground(row % 2 == 0 ? Color.WHITE : zebra); c.setForeground(textoEscuro); }
+                setBorder(new EmptyBorder(0, 10, 0, 10));
+                return c;
+            }
+        };
+        for (int i = 0; i < t.getColumnCount(); i++) t.getColumnModel().getColumn(i).setCellRenderer(cell);
+
+        JTableHeader h = t.getTableHeader();
+        h.setReorderingAllowed(false);
+        h.setPreferredSize(new Dimension(h.getPreferredSize().width, 34));
+        h.setDefaultRenderer(new DefaultTableCellRenderer() {
+            @Override public Component getTableCellRendererComponent(JTable tab, Object val, boolean sel, boolean foc, int row, int col) {
+                JLabel l = (JLabel) super.getTableCellRendererComponent(tab, val, sel, foc, row, col);
+                l.setOpaque(true); l.setBackground(verdeEscuro); l.setForeground(Color.WHITE);
+                l.setFont(new Font("Segoe UI", Font.BOLD, 13)); l.setHorizontalAlignment(SwingConstants.CENTER);
+                l.setBorder(new EmptyBorder(6, 8, 6, 8));
+                return l;
+            }
+        });
+    }
     private JPanel criarCardBase(String titulo, String sub) {
-        JPanel card = new JPanel() { @Override protected void paintComponent(Graphics g) { g.setColor(new Color(255, 255, 255, 180)); g.fillRoundRect(0, 0, getWidth(), getHeight(), 20, 20); } };
+        JPanel card = new JPanel() { @Override protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g; g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(new Color(255, 255, 255, 200)); g2.fillRoundRect(0, 0, getWidth(), getHeight(), 20, 20);
+            g2.setColor(new Color(255, 255, 255, 150)); g2.setStroke(new BasicStroke(1f)); g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 20, 20);
+        } };
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS)); card.setOpaque(false); card.setBorder(new EmptyBorder(20, 20, 20, 20));
-        JLabel lblT = new JLabel(titulo); lblT.setFont(new Font("SansSerif", Font.BOLD, 22)); lblT.setForeground(new Color(0, 74, 35)); lblT.setAlignmentX(Component.CENTER_ALIGNMENT); card.add(lblT);
+        JLabel lblT = new JLabel(titulo); lblT.setFont(new Font("Segoe UI", Font.BOLD, 22)); lblT.setForeground(new Color(0, 74, 35)); lblT.setAlignmentX(Component.CENTER_ALIGNMENT); card.add(lblT);
         card.add(Box.createVerticalStrut(20)); return card;
     }
     private JLabel criarLabelCampo(String texto) {
-        JLabel lbl = new JLabel(texto); lbl.setFont(new Font("SansSerif", Font.BOLD, 15)); lbl.setForeground(new Color(0, 50, 0)); lbl.setAlignmentX(Component.CENTER_ALIGNMENT); return lbl;
+        JLabel lbl = new JLabel(texto); lbl.setFont(new Font("Segoe UI", Font.BOLD, 15)); lbl.setForeground(new Color(0, 50, 0)); lbl.setAlignmentX(Component.CENTER_ALIGNMENT); return lbl;
     }
     private JComboBox<String> criarDropdown(String[] opcoes) {
-        JComboBox<String> combo = new JComboBox<>(opcoes); combo.setMaximumSize(new Dimension(300, 35)); combo.setAlignmentX(Component.CENTER_ALIGNMENT); return combo;
+        JComboBox<String> combo = new JComboBox<>(opcoes);
+        combo.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        combo.setBackground(Color.WHITE);
+        combo.setForeground(new Color(30, 40, 30));
+        combo.setBorder(new LineBorder(new Color(180, 200, 180), 1, true));
+        combo.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        combo.setMaximumSize(new Dimension(300, 35)); combo.setAlignmentX(Component.CENTER_ALIGNMENT); return combo;
     }
     private JTextField campoPlaceholder(String placeholder) {
-        JTextField txt = new JTextField(); txt.setMaximumSize(new Dimension(300, 35)); txt.setHorizontalAlignment(JTextField.CENTER); txt.putClientProperty("placeholder", placeholder); txt.setForeground(Color.GRAY); txt.setText(placeholder);
+        JTextField txt = new JTextField(); txt.setMaximumSize(new Dimension(300, 35)); txt.setHorizontalAlignment(JTextField.CENTER);
+        txt.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        txt.setBorder(BorderFactory.createCompoundBorder(new LineBorder(new Color(180, 200, 180), 1, true), new EmptyBorder(4, 8, 4, 8)));
+        txt.putClientProperty("placeholder", placeholder); txt.setForeground(Color.GRAY); txt.setText(placeholder);
         txt.addFocusListener(new FocusAdapter() {
             @Override public void focusGained(FocusEvent e) { if (txt.getText().equals(placeholder)) { txt.setText(""); txt.setForeground(Color.BLACK); } }
             @Override public void focusLost(FocusEvent e) { if (txt.getText().isBlank()) { txt.setForeground(Color.GRAY); txt.setText(placeholder); } }
@@ -471,10 +497,12 @@ public class PaginaRecursos extends JFrame {
         JButton btn = new JButton(texto) {
             @Override protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create(); g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(getModel().isPressed() ? new Color(0, 50, 20) : new Color(0, 74, 35)); g2.fillRoundRect(0, 0, getWidth(), getHeight(), 15, 15); g2.dispose(); super.paintComponent(g);
+                Color fill = getModel().isPressed() ? new Color(0, 50, 20)
+                        : getModel().isRollover() ? new Color(0, 96, 48) : new Color(0, 74, 35);
+                g2.setColor(fill); g2.fillRoundRect(0, 0, getWidth(), getHeight(), 15, 15); g2.dispose(); super.paintComponent(g);
             }
         };
-        btn.setForeground(Color.WHITE); btn.setFont(new Font("SansSerif", Font.BOLD, 15)); btn.setFocusPainted(false); btn.setContentAreaFilled(false); btn.setBorderPainted(false); btn.setAlignmentX(Component.CENTER_ALIGNMENT); btn.setMaximumSize(new Dimension(250, 45)); btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        btn.setForeground(Color.WHITE); btn.setFont(new Font("Segoe UI", Font.BOLD, 15)); btn.setFocusPainted(false); btn.setContentAreaFilled(false); btn.setBorderPainted(false); btn.setAlignmentX(Component.CENTER_ALIGNMENT); btn.setMaximumSize(new Dimension(250, 45)); btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
         if (acao != null) btn.addActionListener(acao); return btn;
     }
 }

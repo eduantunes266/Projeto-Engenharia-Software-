@@ -2,6 +2,9 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.io.FileInputStream;
+import java.io.ObjectInputStream;
+import java.util.Map;
 
 public class MenuInicial extends JFrame {
 
@@ -38,10 +41,9 @@ public class MenuInicial extends JFrame {
             zonaSuperior.add(criarModulo("FIFA WORLD CUP™ MATCH CENTER ", "Gestão de Calendário e Fases",
                     () -> new MenuMatchCenter(true).setVisible(true)));
             zonaSuperior.add(criarModulo("RECURSOS E ESPAÇOS ", "Hotéis, Centros de Treino e Estádios",
-                    () -> new PaginaRecursos().setVisible(true)));
+                    () -> new MenuRecursos().setVisible(true)));
 
-            JPanel zonaInferior = criarModuloAcessos("ACESSOS", "Bilheteira e Controlo de Entrada",
-                    () -> MenuAcessos.abrirJanela());
+            JPanel zonaInferior = criarModuloAcessos("ACESSOS", "Bilheteira e Controlo de Entrada");
 
             contentorPrincipal.add(zonaSuperior, BorderLayout.CENTER);
             contentorPrincipal.add(zonaInferior, BorderLayout.SOUTH);
@@ -81,14 +83,27 @@ public class MenuInicial extends JFrame {
         p.setOpaque(false);
         p.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
 
-        JLabel texto = new JLabel("<html><body><b style='color:#004A23; font-size:24px; font-family:sans-serif;'>" + titulo + "</b><br><br><span style='color:#003300; font-size:16px; font-family:sans-serif;'>" + sub + "</span><br><br><span style='color:#004A23; font-size:13px; font-family:sans-serif;'>▶ Clique para abrir</span></body></html>");
+        JLabel texto = new JLabel("<html><body><b style='color:#004A23; font-size:24px; font-family:Segoe UI,sans-serif;'>" + titulo + "</b><br><br><span style='color:#003300; font-size:16px; font-family:Segoe UI,sans-serif;'>" + sub + "</span><br><br><span style='color:#004A23; font-size:13px; font-family:Segoe UI,sans-serif;'>▶ Clique para abrir</span></body></html>");
 
         p.add(texto, BorderLayout.NORTH);
         ativarClique(p, acao);
         return p;
     }
 
-    private JPanel criarModuloAcessos(String titulo, String sub, Runnable acao) {
+    @SuppressWarnings("unchecked")
+    private int getTotalBilhetes() {
+        int total = 0;
+        try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream("bilhetes_dados.dat"))) {
+            Map<String, int[]> bilhetes = (Map<String, int[]>) ois.readObject();
+            for (int[] b : bilhetes.values()) {
+                total += b[0] + b[1] + b[2];
+            }
+        } catch (Exception e) {
+        }
+        return total;
+    }
+
+    private JPanel criarModuloAcessos(String titulo, String sub) {
         JPanel p = new JPanel(new BorderLayout()) {
             @Override
             protected void paintComponent(Graphics g) {
@@ -109,9 +124,9 @@ public class MenuInicial extends JFrame {
         p.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
         p.setPreferredSize(new Dimension(0, 150));
 
-        JLabel texto = new JLabel("<html><body><b style='color:#FFFFFF; font-size:24px; font-family:sans-serif;'>" + titulo + "</b><br><br><span style='color:#E0E0E0; font-size:16px; font-family:sans-serif;'>" + sub + "</span></body></html>");
+        JLabel texto = new JLabel("<html><body><b style='color:#FFFFFF; font-size:24px; font-family:Segoe UI,sans-serif;'>" + titulo + "</b><br><br><span style='color:#E0E0E0; font-size:16px; font-family:Segoe UI,sans-serif;'>" + sub + "</span></body></html>");
 
-        JLabel circulo = new JLabel("3", SwingConstants.CENTER) {
+        JLabel circulo = new JLabel(String.valueOf(getTotalBilhetes()), SwingConstants.CENTER) {
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g;
@@ -123,13 +138,28 @@ public class MenuInicial extends JFrame {
         };
         circulo.setPreferredSize(new Dimension(60, 60));
         circulo.setForeground(new Color(0, 0, 50));
-        circulo.setFont(new Font("SansSerif", Font.BOLD, 26));
-        circulo.setToolTipText("Setores disponíveis: Bancada Central, Zona VIP, Topos");
+        circulo.setFont(new Font("Segoe UI", Font.BOLD, 26));
+        circulo.setToolTipText("Total global de bilhetes emitidos no torneio");
 
         JPanel wrapperCirculo = new JPanel(new GridBagLayout());
         wrapperCirculo.setOpaque(false);
         wrapperCirculo.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 20));
         wrapperCirculo.add(circulo);
+
+        Runnable acao = () -> {
+            JFrame frame = new JFrame("Módulo de Acessos - Mundial 2026");
+            frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+            frame.setSize(800, 500);
+            frame.setLocationRelativeTo(null);
+
+            Runnable onUpdate = () -> {
+                circulo.setText(String.valueOf(getTotalBilhetes()));
+                circulo.repaint();
+            };
+
+            frame.add(new MenuAcessos(onUpdate));
+            frame.setVisible(true);
+        };
 
         p.add(texto, BorderLayout.WEST);
         p.add(wrapperCirculo, BorderLayout.EAST);
@@ -137,7 +167,6 @@ public class MenuInicial extends JFrame {
         return p;
     }
 
-    /** Torna um painel clicável: cursor de mão, efeito de hover e ação ao clicar. */
     private void ativarClique(JPanel p, Runnable acao) {
         p.setCursor(new Cursor(Cursor.HAND_CURSOR));
         p.addMouseListener(new MouseAdapter() {
@@ -156,6 +185,8 @@ public class MenuInicial extends JFrame {
     }
 
     public static void main(String[] args) {
+        System.setProperty("awt.useSystemAAFontSettings", "on");
+        System.setProperty("swing.aatext", "true");
         try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); }
         catch (Exception ignored) {}
         SwingUtilities.invokeLater(() -> {

@@ -22,11 +22,6 @@ public class MenuRecursos extends JFrame {
         List<Object[]> viagens = new ArrayList<>();
 
         public RecursosBD() {
-            hoteis.add(new Object[]{"Copacabana Palace", "Rio de Janeiro", "250", "-", "-"});
-            hoteis.add(new Object[]{"Fasano", "Rio de Janeiro", "80", "-", "-"});
-            centros.add(new Object[]{"CT Granja Comary", "Teresópolis", "-"});
-            estadios.add(new Object[]{"Maracanã", "45000", "28000", "5000", "78000"});
-            estadios.add(new Object[]{"Arena Corinthians", "30000", "16205", "3000", "49205"});
         }
     }
 
@@ -63,7 +58,13 @@ public class MenuRecursos extends JFrame {
         JLabel titulo = new JLabel("RECURSOS E ESPAÇOS", SwingConstants.LEFT);
         titulo.setFont(new Font("Segoe UI", Font.BOLD, 24));
         titulo.setForeground(new Color(0, 70, 30));
-        header.add(titulo, BorderLayout.WEST);
+
+        JButton btnVoltar = criarBotaoVoltar(e -> dispatchEvent(new WindowEvent(this, WindowEvent.WINDOW_CLOSING)));
+        JPanel esquerdaHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 0));
+        esquerdaHeader.setOpaque(false);
+        esquerdaHeader.add(btnVoltar);
+        esquerdaHeader.add(titulo);
+        header.add(esquerdaHeader, BorderLayout.WEST);
 
         UIManager.put("TabbedPane.contentOpaque", false);
         JTabbedPane abas = new JTabbedPane();
@@ -493,6 +494,18 @@ public class MenuRecursos extends JFrame {
         }); return txt;
     }
     private String valor(JTextField f) { String t = f.getText().trim(); Object ph = f.getClientProperty("placeholder"); return (ph != null && t.equals(ph.toString())) ? "" : t; }
+    private JButton criarBotaoVoltar(ActionListener acao) {
+        JButton btn = new JButton("← Voltar") {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create(); g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                Color fill = getModel().isPressed() ? new Color(0, 50, 20)
+                        : getModel().isRollover() ? new Color(0, 96, 48) : new Color(0, 74, 35);
+                g2.setColor(fill); g2.fillRoundRect(0, 0, getWidth(), getHeight(), 15, 15); g2.dispose(); super.paintComponent(g);
+            }
+        };
+        btn.setForeground(Color.WHITE); btn.setFont(new Font("Segoe UI", Font.BOLD, 14)); btn.setFocusPainted(false); btn.setContentAreaFilled(false); btn.setBorderPainted(false); btn.setPreferredSize(new Dimension(120, 40)); btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        if (acao != null) btn.addActionListener(acao); return btn;
+    }
     private JButton criarBotaoAcao(String texto, ActionListener acao) {
         JButton btn = new JButton(texto) {
             @Override protected void paintComponent(Graphics g) {

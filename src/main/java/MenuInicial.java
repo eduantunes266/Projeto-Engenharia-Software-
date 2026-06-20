@@ -1,7 +1,6 @@
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
+import java.awt.event.*;
 import java.io.FileInputStream;
 import java.io.ObjectInputStream;
 import java.util.Map;
@@ -14,8 +13,12 @@ public class MenuInicial extends JFrame {
         this.isAdmin = isAdmin;
 
         setTitle("Mundial 2026 - Gestão Integrada  (" + (isAdmin ? "Organizador" : "Adepto") + ")");
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setSize(1100, 700);
+
+        addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) { mostrarLogin(); }
+        });
 
         JPanel contentorPrincipal = new JPanel(new BorderLayout(20, 20)) {
             @Override
@@ -33,6 +36,14 @@ public class MenuInicial extends JFrame {
             }
         };
         contentorPrincipal.setBorder(BorderFactory.createEmptyBorder(25, 25, 25, 25));
+
+        JButton btnSair = criarBotaoSair("Sair");
+        btnSair.addActionListener(e -> voltarAoLogin());
+        JPanel barraTopo = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        barraTopo.setOpaque(false);
+        barraTopo.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
+        barraTopo.add(btnSair);
+        contentorPrincipal.add(barraTopo, BorderLayout.NORTH);
 
         if (isAdmin) {
             JPanel zonaSuperior = new JPanel(new GridLayout(1, 2, 20, 0));
@@ -184,20 +195,41 @@ public class MenuInicial extends JFrame {
         });
     }
 
+    private void voltarAoLogin() {
+        dispose();
+        mostrarLogin();
+    }
+
+    private JButton criarBotaoSair(String texto) {
+        JButton btn = new JButton(texto);
+        btn.setForeground(new Color(0, 55, 22));
+        btn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        btn.setFocusPainted(false);
+        btn.setOpaque(false);
+        btn.setContentAreaFilled(false);
+        btn.setBorderPainted(false);
+        btn.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+        btn.setMargin(new Insets(0, 0, 0, 0));
+        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        return btn;
+    }
+
+    public static void mostrarLogin() {
+        String[] opcoes = {"Organizador ", "Adepto "};
+        int escolha = JOptionPane.showOptionDialog(null, "Selecione o perfil de acesso:", "Login do Sistema",
+                JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, opcoes, opcoes[0]);
+
+        if (escolha == -1) { System.exit(0); return; }
+
+        boolean isAdmin = (escolha == 0);
+        new MenuInicial(isAdmin).setVisible(true);
+    }
+
     public static void main(String[] args) {
         System.setProperty("awt.useSystemAAFontSettings", "on");
         System.setProperty("swing.aatext", "true");
         try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); }
         catch (Exception ignored) {}
-        SwingUtilities.invokeLater(() -> {
-            String[] opcoes = {"Organizador ", "Adepto "};
-            int escolha = JOptionPane.showOptionDialog(null, "Selecione o perfil de acesso:", "Login do Sistema",
-                    JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, opcoes, opcoes[0]);
-
-            if (escolha == -1) System.exit(0);
-
-            boolean isAdmin = (escolha == 0);
-            new MenuInicial(isAdmin).setVisible(true);
-        });
+        SwingUtilities.invokeLater(MenuInicial::mostrarLogin);
     }
 }

@@ -47,7 +47,7 @@ public class MenuAcessos extends JPanel {
         this.onUpdateAcessos = onUpdateAcessos;
         carregarDados();
 
-        setLayout(new GridLayout(1, 2, 20, 20));
+        setLayout(new BorderLayout(10, 10));
         setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
         Color corPaineis = new Color(255, 255, 255, 230);
 
@@ -166,8 +166,45 @@ public class MenuAcessos extends JPanel {
             JOptionPane.showMessageDialog(this, "RESUMO DA COMPRA:\nJogo: " + jogo.partida + "\nSetor: " + cbSetor.getSelectedItem() + "\nQuantidade: " + qtd + " bilhete(s)\nTOTAL PAGO: " + totalPago + "€", "Transação Concluída", JOptionPane.INFORMATION_MESSAGE);
         });
 
-        add(painelEsquerdo);
-        add(painelDireito);
+        JPanel topBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        topBar.setOpaque(false);
+        JButton btnVoltar = criarBotaoVoltar();
+        btnVoltar.addActionListener(e -> {
+            Window w = SwingUtilities.getWindowAncestor(this);
+            if (w != null) w.dispose();
+        });
+        topBar.add(btnVoltar);
+        add(topBar, BorderLayout.NORTH);
+
+        JPanel centro = new JPanel(new GridLayout(1, 2, 20, 20));
+        centro.setOpaque(false);
+        centro.add(painelEsquerdo);
+        centro.add(painelDireito);
+        add(centro, BorderLayout.CENTER);
+    }
+
+    private JButton criarBotaoVoltar() {
+        JButton btn = new JButton("← Voltar") {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                Color fill = getModel().isPressed() ? azulBrasil.darker()
+                        : getModel().isRollover() ? azulBrasil.brighter() : azulBrasil;
+                g2.setColor(fill);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 14, 14);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        btn.setForeground(Color.WHITE);
+        btn.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        btn.setFocusPainted(false);
+        btn.setOpaque(false);
+        btn.setContentAreaFilled(false);
+        btn.setBorderPainted(false);
+        btn.setPreferredSize(new Dimension(120, 38));
+        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        return btn;
     }
 
     private JLabel lbl(String texto) {

@@ -286,8 +286,12 @@ public class MenuMatchCenter extends JFrame {
         gd.centrosVinculados.clear();
         gd.salvarDados();
 
-        new File("recursos_dados.dat").delete();
-        new File("bilhetes_dados.dat").delete();
+        try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream("recursos_dados.dat"))) {
+            oos.writeObject(new MenuRecursos.RecursosBD());
+        } catch (IOException ex) { ex.printStackTrace(); }
+        try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream("bilhetes_dados.dat"))) {
+            oos.writeObject(new HashMap<String, int[]>());
+        } catch (IOException ex) { ex.printStackTrace(); }
 
         for (DefaultTableModel m : modelosCalendario) if (m != null) m.setRowCount(0);
         if (modeloArbitros != null) modeloArbitros.setRowCount(0);
